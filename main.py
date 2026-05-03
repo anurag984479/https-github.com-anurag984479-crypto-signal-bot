@@ -3,7 +3,9 @@ import logging
 import requests
 import ccxt
 import pandas as pd
-import ta  # technical analysis library
+import ta
+import yfinance as yf
+import os
 
 # 1. LOGGING SETUP
 logging.basicConfig(
@@ -11,15 +13,15 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("Binance_Combined_Scanner")
+log = logging.getLogger("Combined_Scanner")
 
 # 2. CONFIGURATION
-TOKEN   = "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk"
-CHAT_ID = "8783763018"
-SYMBOLS = ["BTC/USDT", "XAUUSDT"]   # BTC spot + Gold perpetual
-TIMEFRAME_15M = "15m"
-TIMEFRAME_1M  = "1m"
-CANDLE_LIMIT  = 200
+TOKEN   = os.getenv("TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
+
+SYMBOLS = ["BTC/USD", "XAUUSD=X"]   # BTC via Coinbase, Gold via Yahoo Finance
+TIMEFRAME = "15m"
+CANDLE_LIMIT = 200
 
 # Strategy thresholds
 RSI_OVERSOLD = 35
@@ -37,39 +39,46 @@ def send_telegram_alert(message):
     except Exception as e:
         log.error(f"❌ Telegram delivery failed: {e}")
 
-# 4. BINANCE DATA FETCH
-def get_binance_data(symbol):
+# 4. DATA FETCH
+def get_btc_data():
     try:
-        exchange = ccxt.binance()
-        
-        # Fetch 15m candles
-        ohlcv_15m = exchange.fetch_ohlcv(symbol, timeframe=TIMEFRAME_15M, limit=CANDLE_LIMIT)
-        df_15m = pd.DataFrame(ohlcv_15m, columns=["time","open","high","low","close","volume"])
-        
-        # Fetch 1m candles
-        ohlcv_1m = exchange.fetch_ohlcv(symbol, timeframe=TIMEFRAME_1M, limit=CANDLE_LIMIT)
-        df_1m = pd.DataFrame(ohlcv_1m, columns=["time","open","high","low","close","volume"])
-        
-        # Indicators
-        df_15m["EMA50"] = ta.trend.EMAIndicator(df_15m["close"], window=50).ema_indicator()
-        df_15m["EMA200"] = ta.trend.EMAIndicator(df_15m["close"], window=200).ema_indicator()
-        
-        df_1m["RSI"] = ta.momentum.RSIIndicator(df_1m["close"], window=14).rsi()
-        
-        price = df_1m["close"].iloc[-1]
-        rsi = df_1m["RSI"].iloc[-1]
-        ema50_15m = df_15m["EMA50"].iloc[-1]
-        ema200_15m = df_15m["EMA200"].iloc[-1]
-        
-        return price, rsi, ema50_15m, ema200_15m
-    
+        exchange = ccxt.coinbase()
+        ohlcv = exchange.fetch_ohlcv("BTC/USD", timeframe=TIMEFRAME, limit=CANDLE_LIMIT)
+        df = pd.DataFrame(ohlcv, columns=["time","open","high","low","close","volume"])
+        df["EMA50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
+        df["EMA200"] = ta.trend.EMAIndicator(df["close"], window=200).ema_indicator()
+        df["RSI"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+        price = df["close"].iloc[-1]
+        rsi = df["RSI"].iloc[-1]
+        ema50 = df["EMA50"].iloc[-1]
+        ema200 = df["EMA200"].iloc[-1]
+        return price, rsi, ema50, ema200
     except Exception as e:
-        log.error(f"⚠️ Binance Fetch Error for {symbol}: {e}")
+        log.error(f"⚠️ Coinbase Fetch Error for BTC/USD: {e}")
+        return None
+
+def get_gold_data():
+    try:
+        df = yf.download("XAUUSD=X", interval="1m", period="1d")
+        df["EMA50"] = ta.trend.EMAIndicator(df["Close"], window=50).ema_indicator()
+        df["EMA200"] = ta.trend.EMAIndicator(df["Close"], window=200).ema_indicator()
+        df["RSI"] = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()
+        price = df["Close"].iloc[-1]
+        rsi = df["RSI"].iloc[-1]
+        ema50 = df["EMA50"].iloc[-1]
+        ema200 = df["EMA200"].iloc[-1]
+        return price, rsi, ema50, ema200
+    except Exception as e:
+        log.error(f"⚠️ Yahoo Finance Fetch Error for Gold: {e}")
         return None
 
 # 5. SCANNER LOGIC
 def scan_symbol(symbol):
-    data = get_binance_data(symbol)
+    if symbol == "BTC/USD":
+        data = get_btc_data()
+    else:
+        data = get_gold_data()
+
     if data is None:
         return
     
@@ -80,7 +89,6 @@ def scan_symbol(symbol):
     sl = None
     tp_primary = None
 
-    # Strategy: RSI Pullback in a 15m Trend
     if is_bullish and rsi < RSI_OVERSOLD:
         signal = "LONG / BUY"
         sl = price * (1 - STOP_PCT)
@@ -91,7 +99,7 @@ def scan_symbol(symbol):
         tp_primary = price - (sl - price) * RR_RATIO
 
     if signal:
-        header = "🚨 BINANCE BTC SIGNAL 🚨" if symbol == "BTC/USDT" else "🚨 BINANCE GOLD SIGNAL 🚨"
+        header = "🚨 COINBASE BTC SIGNAL 🚨" if symbol == "BTC/USD" else "🚨 GOLD SIGNAL 🚨"
         msg = (
             f"{header}\n\n"
             f"🔥 *Action:* {signal}\n"
@@ -111,12 +119,12 @@ def scan_symbol(symbol):
 
 # 6. MAIN LOOP
 def main():
-    log.info("🚀 STARTING COMBINED SCANNER: BTC + GOLD (1:2 TP only)")
+    log.info("🚀 STARTING COMBINED SCANNER: BTC (Coinbase) + GOLD (Yahoo Finance)")
     while True:
         try:
             for symbol in SYMBOLS:
                 scan_symbol(symbol)
-            time.sleep(30)  # safe scan interval between cycles
+            time.sleep(30)
         except Exception as e:
             log.error(f"Scanner Loop Error: {e}")
             time.sleep(15)
