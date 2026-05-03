@@ -19,7 +19,7 @@ log = logging.getLogger("Combined_Scanner")
 TOKEN   = os.getenv("TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
 
-SYMBOLS = ["BTC/USD", "XAUUSD=X"]   # BTC via Coinbase, Gold via Yahoo Finance
+SYMBOLS = ["BTC/USD", "GC=F"]   # BTC via Coinbase, Gold via Yahoo Finance
 TIMEFRAME = "15m"
 CANDLE_LIMIT = 200
 
@@ -59,7 +59,7 @@ def get_btc_data():
 
 def get_gold_data():
     try:
-        df = yf.download("XAUUSD=X", interval="1m", period="1d")
+        df = yf.download("GC=F", interval="1m", period="1d")
         df["EMA50"] = ta.trend.EMAIndicator(df["Close"], window=50).ema_indicator()
         df["EMA200"] = ta.trend.EMAIndicator(df["Close"], window=200).ema_indicator()
         df["RSI"] = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()
@@ -119,7 +119,7 @@ def scan_symbol(symbol):
 
 # 6. MAIN LOOP
 def main():
-    log.info("🚀 STARTING COMBINED SCANNER: BTC (Coinbase) + GOLD (Yahoo Finance)")
+    log.info("🚀 STARTING COMBINED SCANNER: BTC (Coinbase) + GOLD (Yahoo Finance GC=F)")
     while True:
         try:
             for symbol in SYMBOLS:
