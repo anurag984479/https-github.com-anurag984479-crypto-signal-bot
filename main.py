@@ -4,7 +4,6 @@ import requests
 import ccxt
 import pandas as pd
 import ta
-import yfinance as yf
 import os
 
 # 1. LOGGING SETUP
@@ -16,10 +15,10 @@ logging.basicConfig(
 log = logging.getLogger("Combined_Scanner")
 
 # 2. CONFIGURATION
-TOKEN   = os.getenv("TOKEN", "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
-CHAT_ID = os.getenv("CHAT_ID", "8783763018")
+TOKEN   = os.getenv("TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
 
-SYMBOLS = ["BTC/USD", "GC=F"]   # BTC via Coinbase, Gold via Yahoo Finance
+SYMBOLS = ["BTC/USD", "XAU/USD"]   # BTC via Coinbase, Gold via Kraken
 TIMEFRAME = "15m"
 CANDLE_LIMIT = 200
 
@@ -48,38 +47,27 @@ def get_btc_data():
         df["EMA50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
         df["EMA200"] = ta.trend.EMAIndicator(df["close"], window=200).ema_indicator()
         df["RSI"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
-        price = df["close"].iloc[-1]
-        rsi = df["RSI"].iloc[-1]
-        ema50 = df["EMA50"].iloc[-1]
-        ema200 = df["EMA200"].iloc[-1]
-        return price, rsi, ema50, ema200
+        return df["close"].iloc[-1], df["RSI"].iloc[-1], df["EMA50"].iloc[-1], df["EMA200"].iloc[-1]
     except Exception as e:
         log.error(f"⚠️ Coinbase Fetch Error for BTC/USD: {e}")
         return None
 
 def get_gold_data():
     try:
-        # Use 5m interval instead of 1m to avoid Yahoo errors
-        df = yf.download("GC=F", interval="5m", period="5d")
-        df["EMA50"] = ta.trend.EMAIndicator(df["Close"], window=50).ema_indicator()
-        df["EMA200"] = ta.trend.EMAIndicator(df["Close"], window=200).ema_indicator()
-        df["RSI"] = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()
-        price = df["Close"].iloc[-1]
-        rsi = df["RSI"].iloc[-1]
-        ema50 = df["EMA50"].iloc[-1]
-        ema200 = df["EMA200"].iloc[-1]
-        return price, rsi, ema50, ema200
+        exchange = ccxt.kraken()
+        ohlcv = exchange.fetch_ohlcv("XAU/USD", timeframe=TIMEFRAME, limit=CANDLE_LIMIT)
+        df = pd.DataFrame(ohlcv, columns=["time","open","high","low","close","volume"])
+        df["EMA50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
+        df["EMA200"] = ta.trend.EMAIndicator(df["close"], window=200).ema_indicator()
+        df["RSI"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+        return df["close"].iloc[-1], df["RSI"].iloc[-1], df["EMA50"].iloc[-1], df["EMA200"].iloc[-1]
     except Exception as e:
-        log.error(f"⚠️ Yahoo Finance Fetch Error for Gold: {e}")
+        log.error(f"⚠️ Kraken Fetch Error for Gold: {e}")
         return None
 
 # 5. SCANNER LOGIC
 def scan_symbol(symbol):
-    if symbol == "BTC/USD":
-        data = get_btc_data()
-    else:
-        data = get_gold_data()
-
+    data = get_btc_data() if symbol == "BTC/USD" else get_gold_data()
     if data is None:
         return
     
@@ -100,7 +88,7 @@ def scan_symbol(symbol):
         tp_primary = price - (sl - price) * RR_RATIO
 
     if signal:
-        header = "🚨 COINBASE BTC SIGNAL 🚨" if symbol == "BTC/USD" else "🚨 GOLD SIGNAL 🚨"
+        header = "🚨 COINBASE BTC SIGNAL 🚨" if symbol == "BTC/USD" else "🚨 KRAKEN GOLD SIGNAL 🚨"
         msg = (
             f"{header}\n\n"
             f"🔥 *Action:* {signal}\n"
@@ -120,7 +108,7 @@ def scan_symbol(symbol):
 
 # 6. MAIN LOOP
 def main():
-    log.info("🚀 STARTING COMBINED SCANNER: BTC (Coinbase) + GOLD (Yahoo Finance GC=F, 5m)")
+    log.info("🚀 STARTING COMBINED SCANNER: BTC (Coinbase) + GOLD (Kraken, 15m)")
     while True:
         try:
             for symbol in SYMBOLS:
