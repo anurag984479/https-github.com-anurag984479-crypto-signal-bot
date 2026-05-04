@@ -10,12 +10,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE ZONE SNIPER v3.5
+# PEPPERSTONE ZONE SNIPER v3.6
 # Assets  : XAUUSD.Qraw + BTCUSD.Qraw
 # Target  : 74-76% win rate
 # Filters : Session + News + HTF + Zone + Volume (ALL 5)
 # R:R     : 1:2
-# Speed   : Parallel fetch + HTF cache + 10sec cycle
+# New     : PRE-SIGNAL alert at 4/5 + exact SIGNAL at 5/5
 # ═══════════════════════════════════════════════════════════════
 
 # 1. LOGGING
@@ -67,7 +67,6 @@ NEWS_BLACKOUT_MINUTES = 30
 HIGH_IMPACT_NEWS = [
     # "2026-05-07 18:00",  # Fed
     # "2026-05-09 12:30",  # NFP
-    # Add every Monday: CPI, PPI, Fed, NFP, ECB
 ]
 
 CHART_LINKS = {
@@ -76,13 +75,20 @@ CHART_LINKS = {
 }
 
 # ─────────────────────────────────────────────
-# 3. HTF CACHE — refresh every 60 minutes
+# 3. HTF CACHE
 # ─────────────────────────────────────────────
 _htf_cache = {
     "BTC/USD": {"trend": "NEUTRAL", "updated": 0},
     "XAU/USD": {"trend": "NEUTRAL", "updated": 0},
 }
 HTF_CACHE_SECONDS = 3600
+
+# Pre-signal cooldown — avoid spamming 4/5 alerts
+_presignal_sent = {
+    "BTC/USD": 0,
+    "XAU/USD": 0,
+}
+PRESIGNAL_COOLDOWN = 300  # 5 minutes between pre-signal alerts
 
 # ─────────────────────────────────────────────
 # 4. TELEGRAM
@@ -93,7 +99,7 @@ def send_telegram(message):
     try:
         r = requests.post(url, json=payload, timeout=10)
         if r.status_code == 200:
-            log.info("✅ Telegram alert sent")
+            log.info("✅ Telegram sent")
         else:
             log.warning(f"Telegram status: {r.status_code}")
     except Exception as e:
@@ -338,19 +344,99 @@ def evaluate_signal(df, htf_trend, price, rsi, ema50, ema200, vol, vol_ma):
     return "NONE", [], buy_checks, sell_checks
 
 # ─────────────────────────────────────────────
-# 12. PROCESS SINGLE SYMBOL
+# 12. PRE-SIGNAL MESSAGE
+# ─────────────────────────────────────────────
+def send_presignal(symbol_key, mt5_sym, price, rsi,
+                   htf_trend, session_name, source,
+                   buy_checks, sell_checks, direction):
+    """Send 4/5 watch alert — with 5 min cooldown."""
+    now = time.time()
+    if now - _presignal_sent[symbol_key] < PRESIGNAL_COOLDOWN:
+        return  # skip — cooldown active
+
+    _presignal_sent[symbol_key] = now
+
+    is_bullish  = direction == "BUY"
+    active      = buy_checks if is_bullish else sell_checks
+    passed      = [k for k, v in active.items() if v]
+    failed      = [k for k, v in active.items() if not v]
+    passed_str  = "\n".join([f"  ✅ {c}" for c in passed])
+    failed_str  = "\n".join([f"  ⏳ {c}" for c in failed])
+
+    msg = (
+        f"👀 *WATCH ALERT — {mt5_sym}* 👀\n\n"
+        f"⚡ *4/5 conditions met — signal forming!*\n\n"
+        f"💹 *Current Price:* ${price:,.2f}\n"
+        f"📊 *Direction:* {'Bullish 📈' if is_bullish else 'Bearish 📉'}\n"
+        f"📈 *RSI:* {rsi:.1f}\n"
+        f"🌍 *HTF (1h):* {htf_trend}\n"
+        f"⏰ *Session:* {session_name}\n"
+        f"📡 *Source:* {source}\n\n"
+        f"*Conditions passed:*\n{passed_str}\n\n"
+        f"*Waiting for:*\n{failed_str}\n\n"
+        f"⚠️ *Get ready — signal may fire soon!*\n"
+        f"🔗 [Open Chart]({CHART_LINKS[symbol_key]})"
+    )
+    send_telegram(msg)
+    log.info(f"👀 PRE-SIGNAL sent for {mt5_sym} — {direction} setup forming")
+
+# ─────────────────────────────────────────────
+# 13. SIGNAL MESSAGE
+# ─────────────────────────────────────────────
+def send_signal(symbol_key, mt5_sym, signal, price,
+                rsi, ema50, ema200, htf_trend,
+                session_name, source, conditions_met):
+    """Send full 5/5 signal with exact entry SL TP."""
+    is_bullish = ema50 > ema200
+
+    if signal == "LONG / BUY":
+        sl = price * (1 - STOP_PCT)
+        tp = price + (price - sl) * RR_RATIO
+    else:
+        sl = price * (1 + STOP_PCT)
+        tp = price - (sl - price) * RR_RATIO
+
+    risk       = abs(price - sl)
+    reward     = abs(tp - price)
+    passed_str = "\n".join([f"  ✅ {c}" for c in conditions_met])
+
+    # Header based on asset
+    if symbol_key == "BTC/USD":
+        header = "🚨 *PEPPERSTONE BTCUSD.Qraw SIGNAL* 🚨"
+    else:
+        header = "🚨 *PEPPERSTONE XAUUSD.Qraw SIGNAL* 🚨"
+
+    msg = (
+        f"{header}\n\n"
+        f"🔥 *Action:* {signal}\n\n"
+        f"💹 *Price:*       ${price:,.2f}\n"
+        f"📍 *Entry:*       {price:,.2f}\n"
+        f"🛑 *Stop Loss:*   {sl:,.2f}  (-{risk:.2f})\n"
+        f"🎯 *Take Profit:* {tp:,.2f}  (+{reward:.2f})\n"
+        f"⚖️ *R:R:*         1:{RR_RATIO}\n\n"
+        f"📊 *Trend (15m):* {'Bullish 📈' if is_bullish else 'Bearish 📉'}\n"
+        f"📈 *RSI:*         {rsi:.1f}\n"
+        f"🌍 *HTF (1h):*    {htf_trend}\n"
+        f"⏰ *Session:*     {session_name}\n"
+        f"📡 *Source:*      {source}\n\n"
+        f"*All 5 conditions met:*\n{passed_str}\n\n"
+        f"🔗 [Open Chart]({CHART_LINKS[symbol_key]})"
+    )
+    send_telegram(msg)
+    log.info(f"✅ SIGNAL {mt5_sym}: {signal} | Entry:{price:.2f} SL:{sl:.2f} TP:{tp:.2f}")
+
+# ─────────────────────────────────────────────
+# 14. PROCESS SINGLE SYMBOL
 # ─────────────────────────────────────────────
 def process_symbol(symbol_key, session_name):
     if symbol_key == "BTC/USD":
-        df, source    = get_btc_data()
-        htf_trend     = get_btc_htf()
-        mt5_sym       = "BTCUSD.Qraw"
-        signal_header = "🚨 *PEPPERSTONE BTCUSD.Qraw SIGNAL* 🚨"
+        df, source = get_btc_data()
+        htf_trend  = get_btc_htf()
+        mt5_sym    = "BTCUSD.Qraw"
     else:
-        df, source    = get_gold_data()
-        htf_trend     = get_gold_htf()
-        mt5_sym       = "XAUUSD.Qraw"
-        signal_header = "🚨 *PEPPERSTONE XAUUSD.Qraw SIGNAL* 🚨"
+        df, source = get_gold_data()
+        htf_trend  = get_gold_htf()
+        mt5_sym    = "XAUUSD.Qraw"
 
     if df is None:
         log.error(f"⚠️ {mt5_sym}: No data")
@@ -379,58 +465,46 @@ def process_symbol(symbol_key, session_name):
 
     is_bullish = ema50 > ema200
 
+    # ── 5/5 SIGNAL ──
     if signal != "NONE":
-        if signal == "LONG / BUY":
-            sl = price * (1 - STOP_PCT)
-            tp = price + (price - sl) * RR_RATIO
-        else:
-            sl = price * (1 + STOP_PCT)
-            tp = price - (sl - price) * RR_RATIO
-
-        risk       = abs(price - sl)
-        reward     = abs(tp - price)
-        passed_str = "\n".join([f"  ✅ {c}" for c in conditions_met])
-
-        msg = (
-            f"{signal_header}\n\n"
-            f"🔥 *Action:* {signal}\n\n"
-            f"💹 *Price:*       ${price:,.2f}\n"
-            f"📍 *Entry:*       {price:,.2f}\n"
-            f"🛑 *Stop Loss:*   {sl:,.2f}  (-{risk:.2f})\n"
-            f"🎯 *Take Profit:* {tp:,.2f}  (+{reward:.2f})\n"
-            f"⚖️ *R:R:*         1:{RR_RATIO}\n\n"
-            f"📊 *Trend (15m):* {'Bullish 📈' if is_bullish else 'Bearish 📉'}\n"
-            f"📈 *RSI:*         {rsi:.1f}\n"
-            f"🌍 *HTF (1h):*    {htf_trend}\n"
-            f"⏰ *Session:*     {session_name}\n"
-            f"📡 *Source:*      {source}\n\n"
-            f"*All 5 conditions met:*\n{passed_str}\n\n"
-            f"🔗 [Open Chart]({CHART_LINKS[symbol_key]})"
+        send_signal(
+            symbol_key, mt5_sym, signal,
+            price, rsi, ema50, ema200,
+            htf_trend, session_name,
+            source, conditions_met
         )
-        send_telegram(msg)
-        log.info(f"✅ SIGNAL {mt5_sym}: {signal} | Entry:{price:.2f} SL:{sl:.2f} TP:{tp:.2f}")
         return "SIGNAL"
 
-    else:
-        buy_score  = sum(1 for v in buy_checks.values()  if v)
-        sell_score = sum(1 for v in sell_checks.values() if v)
-        best_score = max(buy_score, sell_score)
-        direction  = "BUY" if buy_score >= sell_score else "SELL"
-        active     = buy_checks if direction == "BUY" else sell_checks
-        failed     = [k for k, v in active.items() if not v]
-        failed_str = " | ".join(failed) if failed else "none"
+    # ── 4/5 PRE-SIGNAL ──
+    buy_score  = sum(1 for v in buy_checks.values()  if v)
+    sell_score = sum(1 for v in sell_checks.values() if v)
+    best_score = max(buy_score, sell_score)
+    direction  = "BUY" if buy_score >= sell_score else "SELL"
 
-        log.info(
-            f"Heartbeat {mt5_sym} | ${price:,.2f} | RSI:{rsi:.1f} | "
-            f"HTF:{htf_trend} | {session_name} | "
-            f"Score:{best_score}/5 ({direction}) | "
-            f"{'Bullish' if is_bullish else 'Bearish'} | "
-            f"Waiting: {failed_str}"
+    if best_score == 4:
+        send_presignal(
+            symbol_key, mt5_sym, price, rsi,
+            htf_trend, session_name, source,
+            buy_checks, sell_checks, direction
         )
-        return "NONE"
+        return "PRESIGNAL"
+
+    # ── HEARTBEAT ──
+    active     = buy_checks if direction == "BUY" else sell_checks
+    failed     = [k for k, v in active.items() if not v]
+    failed_str = " | ".join(failed) if failed else "none"
+
+    log.info(
+        f"Heartbeat {mt5_sym} | ${price:,.2f} | RSI:{rsi:.1f} | "
+        f"HTF:{htf_trend} | {session_name} | "
+        f"Score:{best_score}/5 ({direction}) | "
+        f"{'Bullish' if is_bullish else 'Bearish'} | "
+        f"Waiting: {failed_str}"
+    )
+    return "NONE"
 
 # ─────────────────────────────────────────────
-# 13. MAIN SCANNER — PARALLEL
+# 15. MAIN SCANNER — PARALLEL
 # ─────────────────────────────────────────────
 def scan_all():
     in_session, session_name = is_valid_session()
@@ -461,20 +535,20 @@ def scan_all():
     return signal_fired
 
 # ─────────────────────────────────────────────
-# 14. MAIN LOOP
+# 16. MAIN LOOP
 # ─────────────────────────────────────────────
 def main():
     log.info("═" * 60)
-    log.info("🚀 PEPPERSTONE ZONE SNIPER v3.5")
+    log.info("🚀 PEPPERSTONE ZONE SNIPER v3.6")
     log.info("📊 Assets     : XAUUSD.Qraw + BTCUSD.Qraw")
     log.info("⏱️  Timeframe  : 15m + 1h HTF")
     log.info("🔍 Filters    : Session + News + HTF + Zone + Volume")
     log.info("🎯 Target     : 74-76% win rate | R:R 1:2")
     log.info("⚡ Speed      : Parallel + HTF cache + 10sec cycle")
-    log.info("💰 Gold       : GC=F ≈ Pepperstone XAUUSD (0.2%)")
+    log.info("👀 Pre-signal : Alert at 4/5 conditions")
+    log.info("🚨 Signal     : Alert at 5/5 conditions")
     log.info("═" * 60)
 
-    # Pre-load HTF cache on startup
     log.info("🔄 Pre-loading HTF trends...")
     with ThreadPoolExecutor(max_workers=2) as ex:
         ex.submit(get_btc_htf)
@@ -493,7 +567,7 @@ def main():
                 log.info("⏳ Signal fired — 10 min cooldown")
                 time.sleep(600)
             else:
-                time.sleep(10)  # ← 10 sec between cycles
+                time.sleep(10)
 
         except KeyboardInterrupt:
             log.info("👋 Bot stopped")
