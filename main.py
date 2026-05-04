@@ -9,11 +9,12 @@ from datetime import datetime, timezone
 import yfinance as yf
 
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE ZONE SNIPER v3.0
-# Assets : XAUUSD.Qraw + BTCUSD.Qraw (MT5 Pepperstone)
+# PEPPERSTONE ZONE SNIPER v3.3
+# Assets : XAUUSD.Qraw + BTCUSD.Qraw
 # Target : 74-76% win rate
 # Filters: Session + News + HTF + Zone + Volume (ALL 5)
 # R:R    : 1:2
+# Note   : MT5 removed — using Coinbase + GC=F
 # ═══════════════════════════════════════════════════════════════
 
 # 1. LOGGING
@@ -30,7 +31,6 @@ log = logging.getLogger("ZoneSniper")
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
-# Pepperstone MT5 exact symbols
 MT5_SYMBOLS = {
     "BTC/USD": "BTCUSD.Qraw",
     "XAU/USD": "XAUUSD.Qraw",
@@ -41,111 +41,44 @@ TIMEFRAME     = "15m"
 TIMEFRAME_HTF = "1h"
 CANDLE_LIMIT  = 300
 
-# Indicator settings
 RSI_OVERSOLD   = 35
 RSI_OVERBOUGHT = 65
-STOP_PCT       = 0.005     # 0.5% stop distance
-RR_RATIO       = 2         # 1:2 risk reward
+STOP_PCT       = 0.005
+RR_RATIO       = 2
 
-# Zone sniper settings
 ZONE_LOOKBACK     = 20
-ZONE_THRESHOLD    = 0.0015  # 0.15% zone proximity
-VOLUME_MULTIPLIER = 1.3     # volume must be 1.3x average
+ZONE_THRESHOLD    = 0.0015
+VOLUME_MULTIPLIER = 1.3
 VOLUME_MA_PERIOD  = 20
 
-# Price sanity ranges (reject bad data)
 PRICE_RANGES = {
     "BTC/USD": (50000, 200000),
-    "XAU/USD": (2500,  4500),
+    "XAU/USD": (2500,  5500),
 }
 
-# ── SESSION FILTER (UTC) ─────────────────────
-# Gold  trades Mon–Fri 00:05–23:55
-# BTC   trades Mon–Fri 00:05–23:55
-# We only trade London + NY sessions for quality
 SESSIONS = [
-    {"name": "London",   "start": 7,  "end": 12},
-    {"name": "NY+London","start": 12, "end": 16},  # overlap — best
-    {"name": "New York", "start": 16, "end": 17},
+    {"name": "London",    "start": 7,  "end": 12},
+    {"name": "NY+London", "start": 12, "end": 16},
+    {"name": "New York",  "start": 16, "end": 17},
 ]
 
-# ── NEWS BLACKOUT ────────────────────────────
-# Update every Monday with that week's events
-# Format: "YYYY-MM-DD HH:MM" UTC
 NEWS_BLACKOUT_MINUTES = 30
 HIGH_IMPACT_NEWS = [
-    # "2026-05-07 18:00",  # Fed meeting
+    # "2026-05-07 18:00",  # Fed
     # "2026-05-09 12:30",  # NFP
-    # Add weekly: CPI, PPI, Fed, NFP, ECB
 ]
 
-# ── CHART LINKS ──────────────────────────────
 CHART_LINKS = {
     "BTC/USD": "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ABTCUSD&interval=15",
     "XAU/USD": "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AXAUUSD&interval=15",
 }
 
 # ─────────────────────────────────────────────
-# 3. MT5 CONNECTION
-# ─────────────────────────────────────────────
-mt5           = None
-MT5_AVAILABLE = False
-
-def init_mt5():
-    global mt5, MT5_AVAILABLE
-    try:
-        import MetaTrader5 as mt5_lib
-        mt5 = mt5_lib
-        if not mt5.initialize():
-            log.warning(f"⚠️ MT5 init failed: {mt5.last_error()}")
-            return
-        info = mt5.terminal_info()
-        log.info(f"✅ MT5 Connected: {info.name}")
-        # Verify each symbol
-        for key, sym in MT5_SYMBOLS.items():
-            si = mt5.symbol_info(sym)
-            if si is None:
-                log.warning(f"⚠️ {sym} not found in MT5 — check Market Watch")
-            else:
-                log.info(f"✅ {sym} | Bid: {si.bid:.2f} | Ask: {si.ask:.2f}")
-        MT5_AVAILABLE = True
-    except ImportError:
-        log.warning("⚠️ MetaTrader5 not installed")
-        log.warning("   Run: pip install MetaTrader5  (Windows only)")
-    except Exception as e:
-        log.warning(f"⚠️ MT5 error: {e}")
-
-def fetch_mt5_df(symbol_key, timeframe_str, limit):
-    """Pull exact Pepperstone candles from MT5."""
-    global mt5
-    sym = MT5_SYMBOLS[symbol_key]
-    try:
-        tf_map = {
-            "15m": mt5.TIMEFRAME_M15,
-            "1h":  mt5.TIMEFRAME_H1,
-        }
-        tf    = tf_map[timeframe_str]
-        rates = mt5.copy_rates_from_pos(sym, tf, 0, limit)
-        if rates is None or len(rates) == 0:
-            raise ValueError(f"No MT5 data for {sym}")
-        df = pd.DataFrame(rates)
-        df = df.rename(columns={"tick_volume": "volume"})
-        df = df[["time","open","high","low","close","volume"]]
-        return add_indicators(df)
-    except Exception as e:
-        log.warning(f"MT5 fetch error ({sym}): {e}")
-        return None
-
-# ─────────────────────────────────────────────
-# 4. TELEGRAM
+# 3. TELEGRAM
 # ─────────────────────────────────────────────
 def send_telegram(message):
     url     = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {
-        "chat_id":    CHAT_ID,
-        "text":       message,
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
         r = requests.post(url, json=payload, timeout=10)
         if r.status_code == 200:
@@ -156,7 +89,7 @@ def send_telegram(message):
         log.error(f"❌ Telegram error: {e}")
 
 # ─────────────────────────────────────────────
-# 5. SESSION & NEWS FILTERS
+# 4. SESSION & NEWS
 # ─────────────────────────────────────────────
 def is_valid_session():
     now_hour = datetime.now(timezone.utc).hour
@@ -174,14 +107,14 @@ def is_near_news():
             ).replace(tzinfo=timezone.utc)
             diff = abs((now - news_dt).total_seconds() / 60)
             if diff <= NEWS_BLACKOUT_MINUTES:
-                log.info(f"📰 News blackout active: {news_str} ({diff:.0f}min away)")
+                log.info(f"📰 News blackout: {news_str} ({diff:.0f}min away)")
                 return True
         except Exception:
             pass
     return False
 
 # ─────────────────────────────────────────────
-# 6. INDICATORS
+# 5. INDICATORS
 # ─────────────────────────────────────────────
 def add_indicators(df):
     df["close"]  = pd.to_numeric(df["close"])
@@ -195,7 +128,7 @@ def add_indicators(df):
     return df
 
 # ─────────────────────────────────────────────
-# 7. DATA SOURCES
+# 6. DATA HELPERS
 # ─────────────────────────────────────────────
 def fetch_yfinance_df(ticker, period, interval):
     raw = yf.download(
@@ -222,74 +155,67 @@ def fetch_ccxt_df(exchange_obj, symbol, timeframe, limit):
     )
     return add_indicators(df)
 
-# ── GOLD data ────────────────────────────────
+# ─────────────────────────────────────────────
+# 7. GOLD DATA
+# ─────────────────────────────────────────────
 def get_gold_data():
     """
-    Priority:
-    1. MT5 XAUUSD.Qraw  — exact Pepperstone price
-    2. yfinance XAUUSD=X — spot price
-    3. yfinance GC=F     — futures fallback
+    Gold OHLCV — GC=F futures (XAUUSD=X delisted)
+    Price ~$4500-4700 accepted
     """
-    # 1. MT5
-    if MT5_AVAILABLE:
-        df = fetch_mt5_df("XAU/USD", "15m", CANDLE_LIMIT)
-        if df is not None:
-            p = df["close"].iloc[-1]
-            if 2500 <= p <= 4500:
-                log.info(f"Gold ✅ MT5 XAUUSD.Qraw — ${p:,.2f}")
-                return df, "MT5 XAUUSD.Qraw"
-
-    # 2/3. yfinance
-    for ticker in ["XAUUSD=X", "GC=F"]:
+    for ticker in ["GC=F", "MGC=F"]:
         try:
             df = fetch_yfinance_df(ticker, "5d", "15m")
             p  = df["close"].iloc[-1]
-            if 2500 <= p <= 4500:
+            if 2500 <= p <= 5500:
                 log.info(f"Gold ✅ yfinance {ticker} — ${p:,.2f}")
                 return df, f"yfinance {ticker}"
-            log.warning(f"Gold {ticker} price ${p:.2f} invalid")
+            log.warning(f"Gold {ticker} price ${p:.2f} out of range")
         except Exception as e:
             log.warning(f"Gold {ticker} failed: {e}")
+
+    # Binance PAXG fallback — gold backed token
+    try:
+        ex = ccxt.binance()
+        df = fetch_ccxt_df(ex, "PAXG/USDT", TIMEFRAME, CANDLE_LIMIT)
+        p  = df["close"].iloc[-1]
+        if 2500 <= p <= 5500:
+            log.info(f"Gold ✅ Binance PAXG/USDT — ${p:,.2f}")
+            return df, "Binance PAXG/USDT"
+    except Exception as e:
+        log.warning(f"Binance PAXG failed: {e}")
 
     log.error("⚠️ Gold — all sources failed")
     return None, None
 
 def get_gold_htf():
-    """Gold 1h HTF trend."""
-    if MT5_AVAILABLE:
-        df = fetch_mt5_df("XAU/USD", "1h", 250)
-        if df is not None:
-            r = df.iloc[-1]
+    """Gold 1h HTF trend via GC=F."""
+    for ticker in ["GC=F", "MGC=F"]:
+        try:
+            df = fetch_yfinance_df(ticker, "30d", "1h")
+            r  = df.iloc[-1]
             if r["EMA50"] > r["EMA200"]: return "BULL"
             if r["EMA50"] < r["EMA200"]: return "BEAR"
             return "NEUTRAL"
+        except Exception as e:
+            log.warning(f"Gold HTF {ticker} error: {e}")
+
     try:
-        df = fetch_yfinance_df("XAUUSD=X", "30d", "1h")
+        ex = ccxt.binance()
+        df = fetch_ccxt_df(ex, "PAXG/USDT", TIMEFRAME_HTF, 250)
         r  = df.iloc[-1]
         if r["EMA50"] > r["EMA200"]: return "BULL"
         if r["EMA50"] < r["EMA200"]: return "BEAR"
     except Exception as e:
-        log.warning(f"Gold HTF error: {e}")
+        log.warning(f"Gold HTF PAXG error: {e}")
     return "NEUTRAL"
 
-# ── BTC data ─────────────────────────────────
+# ─────────────────────────────────────────────
+# 8. BTC DATA
+# ─────────────────────────────────────────────
 def get_btc_data():
-    """
-    Priority:
-    1. MT5 BTCUSD.Qraw — exact Pepperstone price
-    2. Coinbase ccxt
-    3. yfinance BTC-USD
-    """
-    # 1. MT5
-    if MT5_AVAILABLE:
-        df = fetch_mt5_df("BTC/USD", "15m", CANDLE_LIMIT)
-        if df is not None:
-            p = df["close"].iloc[-1]
-            if 50000 <= p <= 200000:
-                log.info(f"BTC ✅ MT5 BTCUSD.Qraw — ${p:,.2f}")
-                return df, "MT5 BTCUSD.Qraw"
-
-    # 2. Coinbase
+    """BTC — Coinbase → Binance → yfinance."""
+    # 1. Coinbase
     try:
         ex = ccxt.coinbase()
         df = fetch_ccxt_df(ex, "BTC/USD", TIMEFRAME, CANDLE_LIMIT)
@@ -297,6 +223,15 @@ def get_btc_data():
         return df, "Coinbase"
     except Exception as e:
         log.warning(f"BTC Coinbase failed: {e}")
+
+    # 2. Binance
+    try:
+        ex = ccxt.binance()
+        df = fetch_ccxt_df(ex, "BTC/USDT", TIMEFRAME, CANDLE_LIMIT)
+        log.info("BTC ✅ Binance")
+        return df, "Binance"
+    except Exception as e:
+        log.warning(f"BTC Binance failed: {e}")
 
     # 3. yfinance
     try:
@@ -310,13 +245,6 @@ def get_btc_data():
 
 def get_btc_htf():
     """BTC 1h HTF trend."""
-    if MT5_AVAILABLE:
-        df = fetch_mt5_df("BTC/USD", "1h", 250)
-        if df is not None:
-            r = df.iloc[-1]
-            if r["EMA50"] > r["EMA200"]: return "BULL"
-            if r["EMA50"] < r["EMA200"]: return "BEAR"
-            return "NEUTRAL"
     try:
         ex = ccxt.coinbase()
         df = fetch_ccxt_df(ex, "BTC/USD", TIMEFRAME_HTF, 250)
@@ -324,11 +252,21 @@ def get_btc_htf():
         if r["EMA50"] > r["EMA200"]: return "BULL"
         if r["EMA50"] < r["EMA200"]: return "BEAR"
     except Exception as e:
-        log.warning(f"BTC HTF error: {e}")
+        log.warning(f"BTC HTF Coinbase error: {e}")
+
+    try:
+        ex = ccxt.binance()
+        df = fetch_ccxt_df(ex, "BTC/USDT", TIMEFRAME_HTF, 250)
+        r  = df.iloc[-1]
+        if r["EMA50"] > r["EMA200"]: return "BULL"
+        if r["EMA50"] < r["EMA200"]: return "BEAR"
+    except Exception as e:
+        log.warning(f"BTC HTF Binance error: {e}")
+
     return "NEUTRAL"
 
 # ─────────────────────────────────────────────
-# 8. ZONE DETECTION
+# 9. ZONE DETECTION
 # ─────────────────────────────────────────────
 def detect_zones(df):
     recent = df.tail(ZONE_LOOKBACK).copy()
@@ -340,12 +278,10 @@ def detect_zones(df):
         if size == 0:
             continue
         body = curr["close"] - curr["open"]
-        # Demand zone — bullish engulf after bearish candle
         if (prev["close"] < prev["open"] and
                 curr["close"] > curr["open"] and
                 body / size > 0.6):
             zones["demand"].append(curr["low"])
-        # Supply zone — bearish engulf after bullish candle
         if (prev["close"] > prev["open"] and
                 curr["close"] < curr["open"] and
                 abs(body) / size > 0.6):
@@ -359,7 +295,7 @@ def price_near_zone(price, levels):
     )
 
 # ─────────────────────────────────────────────
-# 9. SIGNAL ENGINE — ALL 5 CONDITIONS
+# 10. SIGNAL ENGINE
 # ─────────────────────────────────────────────
 def evaluate_signal(df, htf_trend, price, rsi, ema50, ema200, vol, vol_ma):
     is_bullish = ema50 > ema200
@@ -367,18 +303,18 @@ def evaluate_signal(df, htf_trend, price, rsi, ema50, ema200, vol, vol_ma):
     volume_ok  = bool(not pd.isna(vol_ma) and vol >= vol_ma * VOLUME_MULTIPLIER)
 
     buy_checks = {
-        "EMA bullish (15m)": bool(is_bullish),
-        "HTF bullish (1h)":  htf_trend in ("BULL", "NEUTRAL"),
-        "RSI oversold (<35)":rsi < RSI_OVERSOLD,
-        "In demand zone":    price_near_zone(price, zones["demand"]),
-        "Volume confirmed":  volume_ok,
+        "EMA bullish (15m)":  bool(is_bullish),
+        "HTF bullish (1h)":   htf_trend in ("BULL", "NEUTRAL"),
+        "RSI oversold (<35)": rsi < RSI_OVERSOLD,
+        "In demand zone":     price_near_zone(price, zones["demand"]),
+        "Volume confirmed":   volume_ok,
     }
     sell_checks = {
-        "EMA bearish (15m)": bool(not is_bullish),
-        "HTF bearish (1h)":  htf_trend in ("BEAR", "NEUTRAL"),
-        "RSI overbought(>65)":rsi > RSI_OVERBOUGHT,
-        "In supply zone":    price_near_zone(price, zones["supply"]),
-        "Volume confirmed":  volume_ok,
+        "EMA bearish (15m)":   bool(not is_bullish),
+        "HTF bearish (1h)":    htf_trend in ("BEAR", "NEUTRAL"),
+        "RSI overbought (>65)":rsi > RSI_OVERBOUGHT,
+        "In supply zone":      price_near_zone(price, zones["supply"]),
+        "Volume confirmed":    volume_ok,
     }
 
     if all(buy_checks.values()):
@@ -388,21 +324,18 @@ def evaluate_signal(df, htf_trend, price, rsi, ema50, ema200, vol, vol_ma):
     return "NONE", [], buy_checks, sell_checks
 
 # ─────────────────────────────────────────────
-# 10. SCANNER
+# 11. SCANNER
 # ─────────────────────────────────────────────
 def scan_symbol(symbol_key):
-    # ── Filter 1: Session ──
     in_session, session_name = is_valid_session()
     if not in_session:
         log.info(f"🌙 {MT5_SYMBOLS[symbol_key]}: Outside session ({session_name})")
         return
 
-    # ── Filter 2: News ──
     if is_near_news():
         log.info(f"📰 {MT5_SYMBOLS[symbol_key]}: News blackout — skipping")
         return
 
-    # ── Fetch data ──
     if symbol_key == "BTC/USD":
         df, source    = get_btc_data()
         htf_trend     = get_btc_htf()
@@ -426,25 +359,21 @@ def scan_symbol(symbol_key):
     vol    = float(row["volume"])
     vol_ma = float(row["vol_ma"])
 
-    # Indicators ready check
     if any(pd.isna(x) for x in [rsi, ema50, ema200, vol_ma]):
-        log.warning(f"{mt5_sym}: Indicators not ready yet — need more candles")
+        log.warning(f"{mt5_sym}: Indicators not ready")
         return
 
-    # Price sanity check
     lo, hi = PRICE_RANGES[symbol_key]
     if not (lo <= price <= hi):
         log.error(f"⚠️ {mt5_sym} price ${price:.2f} out of range — skipping")
         return
 
-    # ── Evaluate all 5 conditions ──
     signal, conditions_met, buy_checks, sell_checks = evaluate_signal(
         df, htf_trend, price, rsi, ema50, ema200, vol, vol_ma
     )
 
     is_bullish = ema50 > ema200
 
-    # ── SIGNAL FOUND ──
     if signal != "NONE":
         if signal == "LONG / BUY":
             sl = price * (1 - STOP_PCT)
@@ -474,20 +403,16 @@ def scan_symbol(symbol_key):
             f"🔗 [Open Chart]({CHART_LINKS[symbol_key]})"
         )
         send_telegram(msg)
-        log.info(f"✅ SIGNAL {mt5_sym}: {signal} | Entry: {price:.2f} SL: {sl:.2f} TP: {tp:.2f}")
+        log.info(f"✅ SIGNAL {mt5_sym}: {signal} | Entry:{price:.2f} SL:{sl:.2f} TP:{tp:.2f}")
         log.info("⏳ 10-minute cooldown...")
         time.sleep(600)
-
-    # ── NO SIGNAL — heartbeat ──
     else:
         buy_score  = sum(1 for v in buy_checks.values()  if v)
         sell_score = sum(1 for v in sell_checks.values() if v)
         best_score = max(buy_score, sell_score)
         direction  = "BUY" if buy_score >= sell_score else "SELL"
-
-        # Show which conditions failed
-        active_checks = buy_checks if direction == "BUY" else sell_checks
-        failed = [k for k, v in active_checks.items() if not v]
+        active     = buy_checks if direction == "BUY" else sell_checks
+        failed     = [k for k, v in active.items() if not v]
         failed_str = " | ".join(failed) if failed else "none"
 
         log.info(
@@ -499,26 +424,16 @@ def scan_symbol(symbol_key):
         )
 
 # ─────────────────────────────────────────────
-# 11. MAIN LOOP
+# 12. MAIN LOOP
 # ─────────────────────────────────────────────
 def main():
     log.info("═" * 60)
-    log.info("🚀 PEPPERSTONE ZONE SNIPER v3.0")
-    log.info(f"📊 Assets  : XAUUSD.Qraw + BTCUSD.Qraw")
-    log.info(f"⏱️  Timeframe: 15m + 1h HTF")
-    log.info(f"🔍 Filters : Session + News + HTF + Zone + Volume")
-    log.info(f"🎯 Target  : 74-76% win rate | R:R 1:2")
-    log.info("═" * 60)
-
-    # Try MT5 connection (Windows only)
-    init_mt5()
-
-    if MT5_AVAILABLE:
-        log.info("✅ MT5 MODE — Exact Pepperstone .Qraw prices")
-    else:
-        log.info("⚠️  FALLBACK MODE — yfinance / Coinbase prices")
-        log.info("   For exact prices: run locally on Windows with MT5 open")
-
+    log.info("🚀 PEPPERSTONE ZONE SNIPER v3.3")
+    log.info("📊 Assets  : XAUUSD.Qraw + BTCUSD.Qraw")
+    log.info("⏱️  Timeframe: 15m + 1h HTF")
+    log.info("🔍 Filters : Session + News + HTF + Zone + Volume")
+    log.info("🎯 Target  : 74-76% win rate | R:R 1:2")
+    log.info("✅ Mode    : No MT5 needed — Coinbase + GC=F")
     log.info("═" * 60)
 
     while True:
@@ -527,7 +442,7 @@ def main():
                 scan_symbol(symbol)
             time.sleep(30)
         except KeyboardInterrupt:
-            log.info("👋 Bot stopped by user")
+            log.info("👋 Bot stopped")
             break
         except Exception as e:
             log.error(f"Loop error: {e}")
