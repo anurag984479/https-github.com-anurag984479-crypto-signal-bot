@@ -9,12 +9,12 @@ from datetime import datetime, timezone
 import yfinance as yf
 
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE ZONE SNIPER v3.3
+# PEPPERSTONE ZONE SNIPER v3.4
 # Assets : XAUUSD.Qraw + BTCUSD.Qraw
 # Target : 74-76% win rate
 # Filters: Session + News + HTF + Zone + Volume (ALL 5)
 # R:R    : 1:2
-# Note   : MT5 removed — using Coinbase + GC=F
+# Gold   : GC=F ~$4578 matches Pepperstone XAUUSD exactly
 # ═══════════════════════════════════════════════════════════════
 
 # 1. LOGGING
@@ -51,9 +51,10 @@ ZONE_THRESHOLD    = 0.0015
 VOLUME_MULTIPLIER = 1.3
 VOLUME_MA_PERIOD  = 20
 
+# Gold on Pepperstone = ~$4578 (matches GC=F futures)
 PRICE_RANGES = {
     "BTC/USD": (50000, 200000),
-    "XAU/USD": (2500,  5500),
+    "XAU/USD": (4000,  5500),
 }
 
 SESSIONS = [
@@ -66,6 +67,7 @@ NEWS_BLACKOUT_MINUTES = 30
 HIGH_IMPACT_NEWS = [
     # "2026-05-07 18:00",  # Fed
     # "2026-05-09 12:30",  # NFP
+    # Update every Monday with CPI, PPI, Fed, NFP, ECB dates
 ]
 
 CHART_LINKS = {
@@ -157,24 +159,22 @@ def fetch_ccxt_df(exchange_obj, symbol, timeframe, limit):
 
 # ─────────────────────────────────────────────
 # 7. GOLD DATA
+# GC=F price ~$4578 = Pepperstone XAUUSD ✅
 # ─────────────────────────────────────────────
 def get_gold_data():
-    """
-    Gold OHLCV — GC=F futures (XAUUSD=X delisted)
-    Price ~$4500-4700 accepted
-    """
+    # Primary: GC=F matches Pepperstone XAUUSD exactly
     for ticker in ["GC=F", "MGC=F"]:
         try:
             df = fetch_yfinance_df(ticker, "5d", "15m")
             p  = df["close"].iloc[-1]
-            if 2500 <= p <= 5500:
+            if 4000 <= p <= 5500:
                 log.info(f"Gold ✅ yfinance {ticker} — ${p:,.2f}")
                 return df, f"yfinance {ticker}"
             log.warning(f"Gold {ticker} price ${p:.2f} out of range")
         except Exception as e:
             log.warning(f"Gold {ticker} failed: {e}")
 
-    # Binance PAXG fallback — gold backed token
+    # Fallback: Binance PAXG gold backed token
     try:
         ex = ccxt.binance()
         df = fetch_ccxt_df(ex, "PAXG/USDT", TIMEFRAME, CANDLE_LIMIT)
@@ -189,7 +189,7 @@ def get_gold_data():
     return None, None
 
 def get_gold_htf():
-    """Gold 1h HTF trend via GC=F."""
+    # GC=F 1h for HTF trend
     for ticker in ["GC=F", "MGC=F"]:
         try:
             df = fetch_yfinance_df(ticker, "30d", "1h")
@@ -214,7 +214,6 @@ def get_gold_htf():
 # 8. BTC DATA
 # ─────────────────────────────────────────────
 def get_btc_data():
-    """BTC — Coinbase → Binance → yfinance."""
     # 1. Coinbase
     try:
         ex = ccxt.coinbase()
@@ -244,7 +243,6 @@ def get_btc_data():
     return None, None
 
 def get_btc_htf():
-    """BTC 1h HTF trend."""
     try:
         ex = ccxt.coinbase()
         df = fetch_ccxt_df(ex, "BTC/USD", TIMEFRAME_HTF, 250)
@@ -365,7 +363,7 @@ def scan_symbol(symbol_key):
 
     lo, hi = PRICE_RANGES[symbol_key]
     if not (lo <= price <= hi):
-        log.error(f"⚠️ {mt5_sym} price ${price:.2f} out of range — skipping")
+        log.error(f"⚠️ {mt5_sym} price ${price:.2f} out of range ({lo}-{hi}) — skipping")
         return
 
     signal, conditions_met, buy_checks, sell_checks = evaluate_signal(
@@ -406,6 +404,7 @@ def scan_symbol(symbol_key):
         log.info(f"✅ SIGNAL {mt5_sym}: {signal} | Entry:{price:.2f} SL:{sl:.2f} TP:{tp:.2f}")
         log.info("⏳ 10-minute cooldown...")
         time.sleep(600)
+
     else:
         buy_score  = sum(1 for v in buy_checks.values()  if v)
         sell_score = sum(1 for v in sell_checks.values() if v)
@@ -428,12 +427,13 @@ def scan_symbol(symbol_key):
 # ─────────────────────────────────────────────
 def main():
     log.info("═" * 60)
-    log.info("🚀 PEPPERSTONE ZONE SNIPER v3.3")
-    log.info("📊 Assets  : XAUUSD.Qraw + BTCUSD.Qraw")
-    log.info("⏱️  Timeframe: 15m + 1h HTF")
-    log.info("🔍 Filters : Session + News + HTF + Zone + Volume")
-    log.info("🎯 Target  : 74-76% win rate | R:R 1:2")
-    log.info("✅ Mode    : No MT5 needed — Coinbase + GC=F")
+    log.info("🚀 PEPPERSTONE ZONE SNIPER v3.4")
+    log.info("📊 Assets     : XAUUSD.Qraw + BTCUSD.Qraw")
+    log.info("⏱️  Timeframe  : 15m + 1h HTF")
+    log.info("🔍 Filters    : Session + News + HTF + Zone + Volume")
+    log.info("🎯 Target     : 74-76% win rate | R:R 1:2")
+    log.info("✅ No MT5     : Coinbase + GC=F (matches Pepperstone)")
+    log.info("💰 Gold price : ~$4,578 (GC=F = Pepperstone XAUUSD)")
     log.info("═" * 60)
 
     while True:
