@@ -1,5 +1,5 @@
-ccxt==4.2.23
-pandas==2.2.3
-ta==0.10.2
-yfinance==0.2.40
-requests==2.31.0
+ccxt
+pandas
+ta
+yfinance
+requests
