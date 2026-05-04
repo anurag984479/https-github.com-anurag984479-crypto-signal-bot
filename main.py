@@ -9,16 +9,11 @@ from datetime import datetime, timezone
 import yfinance as yf
 
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE ZONE SNIPER v3.0 (Gold Fixed)
+# PEPPERSTONE ZONE SNIPER v3.0
 # Assets : XAUUSD.Qraw + BTCUSD.Qraw (MT5 Pepperstone)
 # Target : 74-76% win rate
 # Filters: Session + News + HTF + Zone + Volume (ALL 5)
 # R:R    : 1:2
-#
-# FIXES:
-#   - XAUUSD=X removed (delisted) → GC=F + MGC=F
-#   - Gold price ceiling 4500 → 5500
-#   - Gold HTF switched to GC=F
 # ═══════════════════════════════════════════════════════════════
 
 # 1. LOGGING
@@ -61,10 +56,13 @@ VOLUME_MA_PERIOD  = 20
 # Price sanity ranges (reject bad data)
 PRICE_RANGES = {
     "BTC/USD": (50000, 200000),
-    "XAU/USD": (2500,  5500),   # FIX: raised from 4500 → 5500 (GC=F ~$4600)
+    "XAU/USD": (2500,  4500),
 }
 
 # ── SESSION FILTER (UTC) ─────────────────────
+# Gold  trades Mon–Fri 00:05–23:55
+# BTC   trades Mon–Fri 00:05–23:55
+# We only trade London + NY sessions for quality
 SESSIONS = [
     {"name": "London",   "start": 7,  "end": 12},
     {"name": "NY+London","start": 12, "end": 16},  # overlap — best
@@ -72,6 +70,8 @@ SESSIONS = [
 ]
 
 # ── NEWS BLACKOUT ────────────────────────────
+# Update every Monday with that week's events
+# Format: "YYYY-MM-DD HH:MM" UTC
 NEWS_BLACKOUT_MINUTES = 30
 HIGH_IMPACT_NEWS = [
     # "2026-05-07 18:00",  # Fed meeting
@@ -101,6 +101,7 @@ def init_mt5():
             return
         info = mt5.terminal_info()
         log.info(f"✅ MT5 Connected: {info.name}")
+        # Verify each symbol
         for key, sym in MT5_SYMBOLS.items():
             si = mt5.symbol_info(sym)
             if si is None:
@@ -225,33 +226,33 @@ def fetch_ccxt_df(exchange_obj, symbol, timeframe, limit):
 def get_gold_data():
     """
     Priority:
-    1. MT5 XAUUSD.Qraw — exact Pepperstone price
-    2. yfinance GC=F   — gold futures (XAUUSD=X delisted)
-    3. yfinance MGC=F  — micro gold futures fallback
+    1. MT5 XAUUSD.Qraw  — exact Pepperstone price
+    2. Kraken XAU/USD   — reliable fallback
     """
     # 1. MT5
     if MT5_AVAILABLE:
         df = fetch_mt5_df("XAU/USD", "15m", CANDLE_LIMIT)
         if df is not None:
             p = df["close"].iloc[-1]
-            if 2500 <= p <= 5500:
+            if 2500 <= p <= 4500:
                 log.info(f"Gold ✅ MT5 XAUUSD.Qraw — ${p:,.2f}")
                 return df, "MT5 XAUUSD.Qraw"
 
-    # FIX: XAUUSD=X removed (delisted). GC=F + MGC=F only.
-    for ticker in ["GC=F", "MGC=F"]:
-        try:
-            df = fetch_yfinance_df(ticker, "5d", "15m")
-            p  = df["close"].iloc[-1]
-            if 2500 <= p <= 5500:
-                log.info(f"Gold ✅ yfinance {ticker} — ${p:,.2f}")
-                return df, f"yfinance {ticker}"
-            log.warning(f"Gold {ticker} price ${p:.2f} out of range")
-        except Exception as e:
-            log.warning(f"Gold {ticker} failed: {e}")
+    # 2. Kraken fallback
+    try:
+        ex = ccxt.kraken()
+        df = fetch_ccxt_df(ex, "XAU/USD", TIMEFRAME, CANDLE_LIMIT)
+        p  = df["close"].iloc[-1]
+        if 2500 <= p <= 4500:
+            log.info(f"Gold ✅ Kraken XAU/USD — ${p:,.2f}")
+            return df, "Kraken XAU/USD"
+        log.warning(f"Gold Kraken price ${p:.2f} invalid")
+    except Exception as e:
+        log.warning(f"Gold Kraken failed: {e}")
 
     log.error("⚠️ Gold — all sources failed")
     return None, None
+
 
 def get_gold_htf():
     """Gold 1h HTF trend."""
@@ -262,9 +263,9 @@ def get_gold_htf():
             if r["EMA50"] > r["EMA200"]: return "BULL"
             if r["EMA50"] < r["EMA200"]: return "BEAR"
             return "NEUTRAL"
-    # FIX: was XAUUSD=X (delisted) → now GC=F
     try:
-        df = fetch_yfinance_df("GC=F", "30d", "1h")
+        ex = ccxt.kraken()
+        df = fetch_ccxt_df(ex, "XAU/USD", TIMEFRAME_HTF, 250)
         r  = df.iloc[-1]
         if r["EMA50"] > r["EMA200"]: return "BULL"
         if r["EMA50"] < r["EMA200"]: return "BEAR"
@@ -374,11 +375,11 @@ def evaluate_signal(df, htf_trend, price, rsi, ema50, ema200, vol, vol_ma):
         "Volume confirmed":  volume_ok,
     }
     sell_checks = {
-        "EMA bearish (15m)":  bool(not is_bullish),
-        "HTF bearish (1h)":   htf_trend in ("BEAR", "NEUTRAL"),
+        "EMA bearish (15m)": bool(not is_bullish),
+        "HTF bearish (1h)":  htf_trend in ("BEAR", "NEUTRAL"),
         "RSI overbought(>65)":rsi > RSI_OVERBOUGHT,
-        "In supply zone":     price_near_zone(price, zones["supply"]),
-        "Volume confirmed":   volume_ok,
+        "In supply zone":    price_near_zone(price, zones["supply"]),
+        "Volume confirmed":  volume_ok,
     }
 
     if all(buy_checks.values()):
@@ -485,9 +486,10 @@ def scan_symbol(symbol_key):
         best_score = max(buy_score, sell_score)
         direction  = "BUY" if buy_score >= sell_score else "SELL"
 
+        # Show which conditions failed
         active_checks = buy_checks if direction == "BUY" else sell_checks
-        failed        = [k for k, v in active_checks.items() if not v]
-        failed_str    = " | ".join(failed) if failed else "none"
+        failed = [k for k, v in active_checks.items() if not v]
+        failed_str = " | ".join(failed) if failed else "none"
 
         log.info(
             f"Heartbeat {mt5_sym} | ${price:,.2f} | RSI:{rsi:.1f} | "
@@ -502,20 +504,20 @@ def scan_symbol(symbol_key):
 # ─────────────────────────────────────────────
 def main():
     log.info("═" * 60)
-    log.info("🚀 PEPPERSTONE ZONE SNIPER v3.0 (Gold Fixed)")
+    log.info("🚀 PEPPERSTONE ZONE SNIPER v3.0")
     log.info(f"📊 Assets  : XAUUSD.Qraw + BTCUSD.Qraw")
     log.info(f"⏱️  Timeframe: 15m + 1h HTF")
     log.info(f"🔍 Filters : Session + News + HTF + Zone + Volume")
     log.info(f"🎯 Target  : 74-76% win rate | R:R 1:2")
-    log.info(f"💰 Gold range: $2500–$5500 | Source: GC=F futures")
     log.info("═" * 60)
 
+    # Try MT5 connection (Windows only)
     init_mt5()
 
     if MT5_AVAILABLE:
         log.info("✅ MT5 MODE — Exact Pepperstone .Qraw prices")
     else:
-        log.info("⚠️  FALLBACK MODE — GC=F (gold) / Coinbase (BTC)")
+        log.info("⚠️  FALLBACK MODE — yfinance / Coinbase prices")
         log.info("   For exact prices: run locally on Windows with MT5 open")
 
     log.info("═" * 60)
