@@ -1,5 +1,6 @@
 ccxt
 pandas
 ta
-requests
 yfinance
+requests
+MetaTrader5
