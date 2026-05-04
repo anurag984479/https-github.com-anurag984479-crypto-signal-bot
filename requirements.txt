@@ -1,6 +1,6 @@
 ccxt==4.5.51
 pandas==2.2.2
-technical-analysis==0.11.0b0
+ta==0.11.0
 yfinance==0.2.40
 requests==2.31.0
 MetaTrader5==5.0.45
