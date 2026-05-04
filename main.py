@@ -227,7 +227,8 @@ def get_gold_data():
     """
     Priority:
     1. MT5 XAUUSD.Qraw  — exact Pepperstone price
-    2. Kraken XAU/USD   — reliable fallback
+    2. yfinance XAUUSD=X — spot price
+    3. yfinance GC=F     — futures fallback
     """
     # 1. MT5
     if MT5_AVAILABLE:
@@ -238,21 +239,20 @@ def get_gold_data():
                 log.info(f"Gold ✅ MT5 XAUUSD.Qraw — ${p:,.2f}")
                 return df, "MT5 XAUUSD.Qraw"
 
-    # 2. Kraken fallback
-    try:
-        ex = ccxt.kraken()
-        df = fetch_ccxt_df(ex, "XAU/USD", TIMEFRAME, CANDLE_LIMIT)
-        p  = df["close"].iloc[-1]
-        if 2500 <= p <= 4500:
-            log.info(f"Gold ✅ Kraken XAU/USD — ${p:,.2f}")
-            return df, "Kraken XAU/USD"
-        log.warning(f"Gold Kraken price ${p:.2f} invalid")
-    except Exception as e:
-        log.warning(f"Gold Kraken failed: {e}")
+    # 2/3. yfinance
+    for ticker in ["XAUUSD=X", "GC=F"]:
+        try:
+            df = fetch_yfinance_df(ticker, "5d", "15m")
+            p  = df["close"].iloc[-1]
+            if 2500 <= p <= 4500:
+                log.info(f"Gold ✅ yfinance {ticker} — ${p:,.2f}")
+                return df, f"yfinance {ticker}"
+            log.warning(f"Gold {ticker} price ${p:.2f} invalid")
+        except Exception as e:
+            log.warning(f"Gold {ticker} failed: {e}")
 
     log.error("⚠️ Gold — all sources failed")
     return None, None
-
 
 def get_gold_htf():
     """Gold 1h HTF trend."""
@@ -264,8 +264,7 @@ def get_gold_htf():
             if r["EMA50"] < r["EMA200"]: return "BEAR"
             return "NEUTRAL"
     try:
-        ex = ccxt.kraken()
-        df = fetch_ccxt_df(ex, "XAU/USD", TIMEFRAME_HTF, 250)
+        df = fetch_yfinance_df("XAUUSD=X", "30d", "1h")
         r  = df.iloc[-1]
         if r["EMA50"] > r["EMA200"]: return "BULL"
         if r["EMA50"] < r["EMA200"]: return "BEAR"
@@ -536,3 +535,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
