@@ -15,7 +15,7 @@ import yfinance as yf
 # Target  : 74-76% win rate
 # Filters : Session + News + HTF + Zone + Volume (ALL 5)
 # R:R     : 1:2
-# Speed   : Parallel fetch + HTF cache (3x faster)
+# Speed   : Parallel fetch + HTF cache + 10sec cycle
 # ═══════════════════════════════════════════════════════════════
 
 # 1. LOGGING
@@ -40,7 +40,7 @@ MT5_SYMBOLS = {
 SYMBOLS       = list(MT5_SYMBOLS.keys())
 TIMEFRAME     = "15m"
 TIMEFRAME_HTF = "1h"
-CANDLE_LIMIT  = 220   # reduced from 300 — still enough for EMA200
+CANDLE_LIMIT  = 220
 
 RSI_OVERSOLD   = 35
 RSI_OVERBOUGHT = 65
@@ -67,6 +67,7 @@ NEWS_BLACKOUT_MINUTES = 30
 HIGH_IMPACT_NEWS = [
     # "2026-05-07 18:00",  # Fed
     # "2026-05-09 12:30",  # NFP
+    # Add every Monday: CPI, PPI, Fed, NFP, ECB
 ]
 
 CHART_LINKS = {
@@ -81,7 +82,7 @@ _htf_cache = {
     "BTC/USD": {"trend": "NEUTRAL", "updated": 0},
     "XAU/USD": {"trend": "NEUTRAL", "updated": 0},
 }
-HTF_CACHE_SECONDS = 3600  # 1 hour
+HTF_CACHE_SECONDS = 3600
 
 # ─────────────────────────────────────────────
 # 4. TELEGRAM
@@ -196,7 +197,6 @@ def get_gold_data():
     return None, None
 
 def _fetch_gold_htf_trend():
-    """Internal — fetches fresh Gold HTF trend."""
     for ticker in ["GC=F", "MGC=F"]:
         try:
             df = fetch_yfinance_df(ticker, "30d", "1h")
@@ -209,14 +209,13 @@ def _fetch_gold_htf_trend():
     return "NEUTRAL"
 
 def get_gold_htf():
-    """Returns cached Gold HTF — refreshes every 60 min."""
     cache = _htf_cache["XAU/USD"]
     now   = time.time()
     if now - cache["updated"] > HTF_CACHE_SECONDS:
-        log.info("🔄 Refreshing Gold HTF trend...")
+        log.info("🔄 Refreshing Gold HTF...")
         cache["trend"]   = _fetch_gold_htf_trend()
         cache["updated"] = now
-        log.info(f"Gold HTF updated: {cache['trend']}")
+        log.info(f"Gold HTF: {cache['trend']}")
     return cache["trend"]
 
 # ─────────────────────────────────────────────
@@ -249,7 +248,6 @@ def get_btc_data():
     return None, None
 
 def _fetch_btc_htf_trend():
-    """Internal — fetches fresh BTC HTF trend."""
     try:
         ex = ccxt.coinbase()
         df = fetch_ccxt_df(ex, "BTC/USD", TIMEFRAME_HTF, 250)
@@ -272,14 +270,13 @@ def _fetch_btc_htf_trend():
     return "NEUTRAL"
 
 def get_btc_htf():
-    """Returns cached BTC HTF — refreshes every 60 min."""
     cache = _htf_cache["BTC/USD"]
     now   = time.time()
     if now - cache["updated"] > HTF_CACHE_SECONDS:
-        log.info("🔄 Refreshing BTC HTF trend...")
+        log.info("🔄 Refreshing BTC HTF...")
         cache["trend"]   = _fetch_btc_htf_trend()
         cache["updated"] = now
-        log.info(f"BTC HTF updated: {cache['trend']}")
+        log.info(f"BTC HTF: {cache['trend']}")
     return cache["trend"]
 
 # ─────────────────────────────────────────────
@@ -344,7 +341,6 @@ def evaluate_signal(df, htf_trend, price, rsi, ema50, ema200, vol, vol_ma):
 # 12. PROCESS SINGLE SYMBOL
 # ─────────────────────────────────────────────
 def process_symbol(symbol_key, session_name):
-    """Fetch + evaluate one symbol. Called in parallel."""
     if symbol_key == "BTC/USD":
         df, source    = get_btc_data()
         htf_trend     = get_btc_htf()
@@ -358,7 +354,7 @@ def process_symbol(symbol_key, session_name):
 
     if df is None:
         log.error(f"⚠️ {mt5_sym}: No data")
-        return
+        return "NONE"
 
     row    = df.iloc[-1]
     price  = float(row["close"])
@@ -370,12 +366,12 @@ def process_symbol(symbol_key, session_name):
 
     if any(pd.isna(x) for x in [rsi, ema50, ema200, vol_ma]):
         log.warning(f"{mt5_sym}: Indicators not ready")
-        return
+        return "NONE"
 
     lo, hi = PRICE_RANGES[symbol_key]
     if not (lo <= price <= hi):
         log.error(f"⚠️ {mt5_sym} ${price:.2f} out of range — skipping")
-        return
+        return "NONE"
 
     signal, conditions_met, buy_checks, sell_checks = evaluate_signal(
         df, htf_trend, price, rsi, ema50, ema200, vol, vol_ma
@@ -437,26 +433,24 @@ def process_symbol(symbol_key, session_name):
 # 13. MAIN SCANNER — PARALLEL
 # ─────────────────────────────────────────────
 def scan_all():
-    """Scan BTC + Gold in parallel — 3x faster."""
     in_session, session_name = is_valid_session()
     if not in_session:
         log.info(f"🌙 Outside session ({session_name}) — sleeping")
-        return
+        return False
 
     if is_near_news():
-        log.info("📰 News blackout — skipping all symbols")
-        return
+        log.info("📰 News blackout — skipping all")
+        return False
 
     signal_fired = False
 
-    # Fetch BTC + Gold simultaneously
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = {
             executor.submit(process_symbol, sym, session_name): sym
             for sym in SYMBOLS
         }
         for future in as_completed(futures):
-            sym    = futures[future]
+            sym = futures[future]
             try:
                 result = future.result()
                 if result == "SIGNAL":
@@ -464,10 +458,7 @@ def scan_all():
             except Exception as e:
                 log.error(f"Error processing {sym}: {e}")
 
-    # 10 min cooldown if any signal fired
-    if signal_fired:
-        log.info("⏳ Signal fired — 10 minute cooldown...")
-        time.sleep(600)
+    return signal_fired
 
 # ─────────────────────────────────────────────
 # 14. MAIN LOOP
@@ -479,24 +470,31 @@ def main():
     log.info("⏱️  Timeframe  : 15m + 1h HTF")
     log.info("🔍 Filters    : Session + News + HTF + Zone + Volume")
     log.info("🎯 Target     : 74-76% win rate | R:R 1:2")
-    log.info("⚡ Speed      : Parallel fetch + HTF cache (3x faster)")
-    log.info("💰 Gold       : GC=F ≈ Pepperstone XAUUSD (0.2% diff)")
+    log.info("⚡ Speed      : Parallel + HTF cache + 10sec cycle")
+    log.info("💰 Gold       : GC=F ≈ Pepperstone XAUUSD (0.2%)")
     log.info("═" * 60)
 
     # Pre-load HTF cache on startup
     log.info("🔄 Pre-loading HTF trends...")
-    get_btc_htf()
-    get_gold_htf()
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        ex.submit(get_btc_htf)
+        ex.submit(get_gold_htf)
     log.info("✅ HTF cache ready — starting scanner")
     log.info("═" * 60)
 
     while True:
         try:
-            start = time.time()
-            scan_all()
-            elapsed = time.time() - start
-            log.info(f"⏱️ Cycle time: {elapsed:.1f}s")
-            time.sleep(30)
+            start        = time.time()
+            signal_fired = scan_all()
+            elapsed      = time.time() - start
+            log.info(f"⏱️  Cycle: {elapsed:.1f}s")
+
+            if signal_fired:
+                log.info("⏳ Signal fired — 10 min cooldown")
+                time.sleep(600)
+            else:
+                time.sleep(10)  # ← 10 sec between cycles
+
         except KeyboardInterrupt:
             log.info("👋 Bot stopped")
             break
