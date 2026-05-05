@@ -322,7 +322,7 @@ def fetch_ccxt_df(exchange_obj, symbol, timeframe, limit):
 
 def get_market_data(symbol_key, timeframe, limit):
     mkt    = MARKETS[symbol_key]
-    period = "5d" if timeframe == "15m" else "30d"
+    period = "7d" if timeframe == "15m" else "30d"
 
     if symbol_key == "XAU/USD":
         for ticker in ["GC=F", "MGC=F"]:
