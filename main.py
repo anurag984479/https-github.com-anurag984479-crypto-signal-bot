@@ -10,19 +10,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE MOMENTUM HUNTER v7.4 — FINAL
+# PEPPERSTONE MOMENTUM HUNTER v7.4 — CLEAN
 # Markets  : TOP 5 ONLY
-# Filters  : HTF Trend + ADX + Session
+# Filters  : Trend + ADX + MTF + Session
 # Win Rate : 75-78% realistic
-# Trades   : 1-3 per day quality
-# Lots     : 100% MT5 verified all 5 markets
-#
-# MT5 CONTRACT SPECS VERIFIED:
-# XAUUSD.Qraw : Contract=100oz  → $100/lot/$1move
-# BTCUSD.Qraw : Contract=1 BTC  → $1/lot/$1move
-# GBPUSD.Qraw : Contract=100000 → $100000/lot/$1move
-# ETHUSD.Qraw : Contract=1 ETH  → $1/lot/$1move
-# US500.Qraw  : Contract=10     → $10/lot/$1move
+# Trades   : 1-3 per day quality only
+# NO breakeven alerts — clean signals only
 # ═══════════════════════════════════════════════════════════════
 
 logging.basicConfig(
@@ -35,85 +28,66 @@ log = logging.getLogger("v7.4")
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
-# ═══════════════════════════════════════════════════════════════
-# MT5 VERIFIED DOLLAR PER LOT
-# Formula: Lots = Risk / (SL_distance × DPL)
-#
-# XAUUSD: $100/(23×100)      = 0.043 lots ✅ iPhone verified
-# BTCUSD: $100/(400×1)       = 0.250 lots ✅ MT5 verified
-# GBPUSD: $100/(0.003×100000)= 0.333 lots ✅ Pepperstone verified
-# ETHUSD: $100/(100×1)       = 1.000 lots ✅ MT5 verified
-# US500:  $100/(20×10)       = 0.500 lots ✅ MT5 verified
-# ═══════════════════════════════════════════════════════════════
-
-DOLLAR_PER_LOT = {
-    "XAU/USD": 100.0,
-    "BTC/USD": 1.0,
-    "GBP/USD": 100000.0,
-    "ETH/USD": 1.0,
-    "US500":   10.0,
-}
-
 MARKETS = {
     "XAU/USD": {
-        "mt5":      "XAUUSD.Qraw",
-        "yf":       "GC=F",
-        "price_lo": 4000,
-        "price_hi": 5500,
-        "sessions": [7, 20],
-        "tier":     "⭐⭐⭐⭐⭐ Gold #1",
-        "decimals": 2,
-        "min_sl":   20.0,
-        "win_rate": "75%",
-        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AXAUUSD&interval=5",
+        "mt5":            "XAUUSD.Qraw",
+        "yf":             "GC=F",
+        "price_lo":       4000,
+        "price_hi":       5500,
+        "sessions":       [7, 20],
+        "tier":           "⭐⭐⭐⭐⭐ Gold #1",
+        "decimals":       2,
+        "min_sl":         12.0,
+        "win_rate":       "75%",
+        "chart":          "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AXAUUSD&interval=5",
     },
     "BTC/USD": {
-        "mt5":      "BTCUSD.Qraw",
-        "yf":       None,
-        "price_lo": 50000,
-        "price_hi": 200000,
-        "sessions": [0, 23],
-        "tier":     "⭐⭐⭐⭐⭐ BTC #2",
-        "decimals": 2,
-        "min_sl":   400.0,
-        "win_rate": "70%",
-        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ABTCUSD&interval=5",
+        "mt5":            "BTCUSD.Qraw",
+        "yf":             None,
+        "price_lo":       50000,
+        "price_hi":       200000,
+        "sessions":       [0, 23],
+        "tier":           "⭐⭐⭐⭐⭐ BTC #2",
+        "decimals":       2,
+        "min_sl":         200.0,
+        "win_rate":       "70%",
+        "chart":          "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ABTCUSD&interval=5",
     },
     "GBP/USD": {
-        "mt5":      "GBPUSD.Qraw",
-        "yf":       "GBPUSD=X",
-        "price_lo": 1.10,
-        "price_hi": 1.60,
-        "sessions": [7, 20],
-        "tier":     "⭐⭐⭐⭐ GBP #3",
-        "decimals": 5,
-        "min_sl":   0.0030,
-        "win_rate": "68%",
-        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AGBPUSD&interval=5",
+        "mt5":            "GBPUSD.Qraw",
+        "yf":             "GBPUSD=X",
+        "price_lo":       1.10,
+        "price_hi":       1.60,
+        "sessions":       [7, 20],
+        "tier":           "⭐⭐⭐⭐ GBP #3",
+        "decimals":       5,
+        "min_sl":         0.0015,
+        "win_rate":       "68%",
+        "chart":          "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AGBPUSD&interval=5",
     },
     "ETH/USD": {
-        "mt5":      "ETHUSD.Qraw",
-        "yf":       None,
-        "price_lo": 1000,
-        "price_hi": 10000,
-        "sessions": [0, 23],
-        "tier":     "⭐⭐⭐⭐ ETH #4",
-        "decimals": 2,
-        "min_sl":   15.0,
-        "win_rate": "67%",
-        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AETHUSD&interval=5",
+        "mt5":            "ETHUSD.Qraw",
+        "yf":             None,
+        "price_lo":       1000,
+        "price_hi":       10000,
+        "sessions":       [0, 23],
+        "tier":           "⭐⭐⭐⭐ ETH #4",
+        "decimals":       2,
+        "min_sl":         10.0,
+        "win_rate":       "67%",
+        "chart":          "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AETHUSD&interval=5",
     },
     "US500": {
-        "mt5":      "US500.Qraw",
-        "yf":       "^GSPC",
-        "price_lo": 5000,
-        "price_hi": 10000,
-        "sessions": [13, 21],
-        "tier":     "⭐⭐⭐⭐ SPX #5",
-        "decimals": 2,
-        "min_sl":   15.0,
-        "win_rate": "66%",
-        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AUS500&interval=5",
+        "mt5":            "US500.Qraw",
+        "yf":             "^GSPC",
+        "price_lo":       5000,
+        "price_hi":       10000,
+        "sessions":       [13, 21],
+        "tier":           "⭐⭐⭐⭐ SPX #5",
+        "decimals":       2,
+        "min_sl":         10.0,
+        "win_rate":       "66%",
+        "chart":          "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AUS500&interval=5",
     },
 }
 
@@ -151,19 +125,31 @@ def send_telegram(msg):
 
 # ─────────────────────────────────────────────
 # LOT SIZE — 100% MT5 VERIFIED
+# XAUUSD: Contract=100oz  → DPL=100   ✅ iPhone verified
+# BTCUSD: Contract=1 BTC  → DPL=1     ✅ MT5 verified
+# GBPUSD: Contract=100000 → DPL=100000 ✅ Pepperstone verified
+# ETHUSD: Contract=1 ETH  → DPL=1     ✅ MT5 verified
+# US500:  Contract=10     → DPL=10    ✅ MT5 verified
+#
+# Formula: Lots = Risk / (SL_distance × DPL)
+#
+# Verified P&L at 1:2 R:R:
+# XAUUSD: $100/(23×100)       = 0.043 lots → profit $198 ✅
+# BTCUSD: $100/(400×1)        = 0.250 lots → profit $200 ✅
+# GBPUSD: $100/(0.003×100000) = 0.333 lots → profit $200 ✅
+# ETHUSD: $100/(100×1)        = 1.000 lots → profit $200 ✅
+# US500:  $100/(20×10)        = 0.500 lots → profit $200 ✅
 # ─────────────────────────────────────────────
-def lot_table(price, sl, symbol_key):
-    """
-    Verified MT5 lot sizes per Pepperstone specs:
-    Lots = Risk_USD / (SL_distance × DPL)
 
-    XAUUSD: $100/(23×100)      = 0.043 ✅
-    BTCUSD: $100/(400×1)       = 0.250 ✅
-    GBPUSD: $100/(0.003×100000)= 0.333 ✅
-    ETHUSD: $100/(100×1)       = 1.000 ✅
-    US500:  $100/(20×10)       = 0.500 ✅
-    All verified = $200 profit at 1:2 R:R
-    """
+DOLLAR_PER_LOT = {
+    "XAU/USD": 100.0,
+    "BTC/USD": 1.0,
+    "GBP/USD": 100000.0,
+    "ETH/USD": 1.0,
+    "US500":   10.0,
+}
+
+def lot_table(price, sl, symbol_key):
     sl_dist = abs(price - sl)
     if sl_dist == 0:
         return "N/A"
@@ -173,16 +159,8 @@ def lot_table(price, sl, symbol_key):
         lot = round(risk / (sl_dist * dpl), 3)
         if lot < 0.01:
             lot = 0.01
-        lines.append(f"  💵 ${risk:>3} risk → {lot:.3f} lots")
+        lines.append(f"  💵 ${risk} → {lot} lots")
     return "\n".join(lines)
-
-def lot_for_risk(price, sl, symbol_key, risk_usd):
-    sl_dist = abs(price - sl)
-    if sl_dist == 0:
-        return 0.01
-    dpl = DOLLAR_PER_LOT.get(symbol_key, 1.0)
-    lot = round(risk_usd / (sl_dist * dpl), 3)
-    return max(lot, 0.01)
 
 # ─────────────────────────────────────────────
 # SESSION
@@ -301,13 +279,13 @@ def add_ind(df):
 # ADX FILTER
 # ─────────────────────────────────────────────
 def is_trending(df):
-    adx = df.iloc[-1]["adx"]
+    adx = float(df.iloc[-1]["adx"])
     if pd.isna(adx):
         return True
-    return float(adx) >= ADX_THRESHOLD
+    return adx >= ADX_THRESHOLD
 
 # ─────────────────────────────────────────────
-# CONDITIONS — only trades WITH HTF trend
+# CONDITIONS
 # ─────────────────────────────────────────────
 def check(df, trend):
     last  = df.iloc[-1]
@@ -346,7 +324,6 @@ def check(df, trend):
     buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
 
-    # Only trade WITH HTF trend
     if trend == "BULL": sell_score = 0
     if trend == "BEAR": buy_score  = 0
 
@@ -367,7 +344,7 @@ def calc_levels(price, direction, atr, symbol_key):
     return sl, tp, sl_dist
 
 # ─────────────────────────────────────────────
-# PROCESS ONE MARKET
+# PROCESS
 # ─────────────────────────────────────────────
 def process(symbol_key):
     mkt = MARKETS[symbol_key]
@@ -392,7 +369,6 @@ def process(symbol_key):
     if not (mkt["price_lo"] <= price <= mkt["price_hi"]):
         return "NONE"
 
-    # ADX filter
     if not is_trending(df):
         adx_val = float(last["adx"]) if not pd.isna(last["adx"]) else 0
         log.info(f"⏭️  {mkt['mt5']} SKIPPED ranging ADX:{adx_val:.1f}")
@@ -418,7 +394,7 @@ def process(symbol_key):
             wstr    = "\n".join([f"  ⏳ {w}" for w in waiting])
             msg = (
                 f"👀 *PRE-ALERT — {mt5}*\n\n"
-                f"*2/5 conditions building!*\n\n"
+                f"*2/5 building — almost there!*\n\n"
                 f"💹 *Price:* ${price:,.{dec}f}\n"
                 f"📊 *Direction:* "
                 f"{'Bullish 📈' if dirn=='BUY' else 'Bearish 📉'}\n"
@@ -427,7 +403,7 @@ def process(symbol_key):
                 f"🌍 *HTF:* {trend}\n"
                 f"⏰ *Session:* {session}\n\n"
                 f"*Still need:*\n{wstr}\n\n"
-                f"👀 *Prepare — signal coming!*\n"
+                f"👀 *Watch this market!*\n"
                 f"🔗 [Chart]({mkt['chart']})"
             )
             send_telegram(msg)
@@ -457,12 +433,10 @@ def process(symbol_key):
 
         sl, tp, sl_dist = calc_levels(price, direction, atr, symbol_key)
         lots            = lot_table(price, sl, symbol_key)
-        example_lot     = lot_for_risk(price, sl, symbol_key, 100)
-        dpl             = DOLLAR_PER_LOT.get(symbol_key, 1.0)
         _signal_sent[symbol_key] = now
 
         msg = (
-            f"🚀 *CONFIRMED SIGNAL — {mt5}* 🚀\n"
+            f"🚀 *QUALITY SIGNAL — {mt5}* 🚀\n"
             f"_{mkt['tier']} — {mkt['win_rate']} win rate_\n\n"
             f"🔥 *Action:* {signal}\n"
             f"⭐ *Confirmed:* {best}/5\n"
@@ -482,8 +456,7 @@ def process(symbol_key):
             f"📡 *Source:* {source}\n\n"
             f"*✅ Confirmed ({best}/5):*\n{pass_str}\n\n"
             f"*❌ Not met:*\n{fail_str}\n\n"
-            f"📦 *Lot Sizes (MT5 verified):*\n{lots}\n"
-            f"_$100 risk = {example_lot} lots_\n\n"
+            f"📦 *Lot Sizes:*\n{lots}\n\n"
             f"⚡ *ENTER NOW — 1:2 TARGET!*\n"
             f"🔗 [Open Chart]({mkt['chart']})"
         )
@@ -491,8 +464,7 @@ def process(symbol_key):
         log.info(
             f"🚀 SIGNAL {mt5}: {signal} {best}/5 | "
             f"${price:.{dec}f} SL:{sl:.{dec}f} "
-            f"TP:{tp:.{dec}f} | "
-            f"$100→{example_lot}lots"
+            f"TP:{tp:.{dec}f} ADX:{adx:.1f}"
         )
         return "SIGNAL"
 
@@ -504,7 +476,7 @@ def process(symbol_key):
     return "NONE"
 
 # ─────────────────────────────────────────────
-# SCAN ALL 5
+# SCAN
 # ─────────────────────────────────────────────
 def scan():
     fired = False
@@ -523,15 +495,9 @@ def scan():
 # ─────────────────────────────────────────────
 def main():
     log.info("═" * 60)
-    log.info("🚀 PEPPERSTONE MOMENTUM HUNTER v7.4 — FINAL")
+    log.info("🚀 PEPPERSTONE MOMENTUM HUNTER v7.4 — CLEAN")
     log.info("📊 TOP 5: XAUUSD BTC GBP ETH SPX")
-    log.info("💰 LOT SIZES: 100% MT5 verified")
-    log.info("   XAUUSD: Contract=100  → DPL=100  ✅")
-    log.info("   BTCUSD: Contract=1    → DPL=1    ✅")
-    log.info("   GBPUSD: Contract=100k → DPL=100k ✅")
-    log.info("   ETHUSD: Contract=1    → DPL=1    ✅")
-    log.info("   US500:  Contract=10   → DPL=10   ✅")
-    log.info("🛡️  FILTERS:")
+    log.info("🛡️  FILTERS ACTIVE:")
     log.info("   ✅ HTF trend direction only")
     log.info("   ✅ ADX > 20 trending only")
     log.info("   ✅ 3/5 confirmed conditions")
@@ -539,13 +505,20 @@ def main():
     log.info("🎯 Win Rate : 75-78%")
     log.info("📈 Trades   : 1-3 per day")
     log.info("⚡ Target   : 1:2 R:R")
+    log.info("🔕 Breakeven: REMOVED — clean signals only")
+    log.info("💰 Lot Sizes: 100% MT5 verified")
+    log.info("   XAUUSD → DPL=100   ✅")
+    log.info("   BTCUSD → DPL=1     ✅")
+    log.info("   GBPUSD → DPL=100k  ✅")
+    log.info("   ETHUSD → DPL=1     ✅")
+    log.info("   US500  → DPL=10    ✅")
     log.info("═" * 60)
 
     log.info("🔄 Loading HTF trends...")
     with ThreadPoolExecutor(max_workers=5) as ex:
         for s in SYMBOLS:
             ex.submit(get_trend, s)
-    log.info("✅ Ready — hunting quality signals!")
+    log.info("✅ Ready — clean hunting!")
     log.info("═" * 60)
 
     while True:
