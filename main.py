@@ -11,9 +11,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE MOMENTUM HUNTER v7.0
+# PEPPERSTONE MOMENTUM HUNTER v7.1
 # Strategy : Confirmed momentum — 1:2 R:R only
-# Timeframe: 5m (fast) + 15m (confirm) + 1h (trend)
+# Timeframe: 5m signals + 1h trend
 # Target   : 5-10 confirmed trades per day
 # Win Rate : 65-70% realistic
 # ═══════════════════════════════════════════════════════════════
@@ -199,34 +199,19 @@ MARKETS = {
     },
 }
 
-SYMBOLS = list(MARKETS.keys())
-
-# ── Signal conditions (relaxed for more trades) ──
-RSI_OB          = 62   # Overbought
-RSI_OS          = 38   # Oversold
-VOL_MULT        = 1.1  # Volume spike 1.1x
-RR              = 2    # Fixed 1:2
-SIGNAL_COOLDOWN = 900  # 15 min per market
-
-# ── Confirmation thresholds ──
-# Need 3/5 conditions for signal
+SYMBOLS         = list(MARKETS.keys())
+RSI_OB          = 62
+RSI_OS          = 38
+VOL_MULT        = 1.1
+RR              = 2
+SIGNAL_COOLDOWN = 900
 CONFIRM_THRESHOLD = 3
+PRESIG_COOLDOWN   = 300
 
-NEWS_BLACKOUT_MINUTES = 30
-HIGH_IMPACT_NEWS = [
-    "2026-05-06 14:00",
-    "2026-05-07 18:00",
-    "2026-05-07 18:30",
-    "2026-05-08 12:30",
-    "2026-05-09 12:30",
-    "2026-05-09 14:00",
-]
-
-_signal_sent  = {s: 0 for s in SYMBOLS}
-_presig_sent  = {s: 0 for s in SYMBOLS}
-_htf_cache    = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
-HTF_REFRESH   = 3600
-PRESIG_COOLDOWN = 300
+_signal_sent = {s: 0 for s in SYMBOLS}
+_presig_sent = {s: 0 for s in SYMBOLS}
+_htf_cache   = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
+HTF_REFRESH  = 3600
 
 # ─────────────────────────────────────────────
 # TELEGRAM
@@ -244,14 +229,14 @@ def send_telegram(msg):
         log.error(f"Telegram error: {e}")
 
 # ─────────────────────────────────────────────
-# LOT SIZE — CORRECT PER MARKET
+# LOT SIZE
 # ─────────────────────────────────────────────
 def lot_table(price, sl, symbol_key):
-    sl_dist    = abs(price - sl)
+    sl_dist = abs(price - sl)
     if sl_dist == 0:
         return "N/A"
-    mult       = MARKETS[symbol_key]["pip_multiplier"]
-    lines      = []
+    mult  = MARKETS[symbol_key]["pip_multiplier"]
+    lines = []
     for risk in [10, 25, 50, 100, 200]:
         lot = round(risk / (sl_dist * mult), 3)
         if lot < 0.01:
@@ -260,11 +245,11 @@ def lot_table(price, sl, symbol_key):
     return "\n".join(lines)
 
 # ─────────────────────────────────────────────
-# SESSION & NEWS
+# SESSION
 # ─────────────────────────────────────────────
 def in_session(symbol_key):
-    h     = datetime.now(timezone.utc).hour
-    s, e  = MARKETS[symbol_key]["sessions"]
+    h    = datetime.now(timezone.utc).hour
+    s, e = MARKETS[symbol_key]["sessions"]
     if not (s <= h < e):
         return False, "Closed"
     if 12 <= h < 16: return True, "NY+London 🔥"
@@ -272,19 +257,8 @@ def in_session(symbol_key):
     if h  < 7:       return True, "Asian"
     return True, "New York"
 
-def near_news():
-    now = datetime.now(timezone.utc)
-    for n in HIGH_IMPACT_NEWS:
-        try:
-            dt   = datetime.strptime(n, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
-            diff = abs((now - dt).total_seconds() / 60)
-            if diff <= NEWS_BLACKOUT_MINUTES:
-                return True
-        except: pass
-    return False
-
 # ─────────────────────────────────────────────
-# DATA FETCH — 5m + 1h
+# DATA FETCH
 # ─────────────────────────────────────────────
 def fetch_yf(ticker, period, interval):
     raw = yf.download(ticker, period=period,
@@ -306,15 +280,18 @@ def fetch_ccxt(exchange, sym, tf, limit):
                         columns=["time","open","high","low","close","volume"])
 
 def get_5m_data(symbol_key):
-    mkt = MARKETS[symbol_key]
-    # Crypto via ccxt
+    mkt    = MARKETS[symbol_key]
+    yf_sym = mkt["yf"]
+
     if symbol_key == "BTC/USD":
         for src, sym in [("coinbase","BTC/USD"),("binance","BTC/USDT")]:
             try:
                 ex = getattr(ccxt, src)()
                 return fetch_ccxt(ex, sym, "5m", 200), src
             except: pass
-        return fetch_yf("BTC-USD","5d","5m"), "yf"
+        try:
+            return fetch_yf("BTC-USD","5d","5m"), "yf"
+        except: return None, None
 
     if symbol_key == "ETH/USD":
         for src, sym in [("coinbase","ETH/USD"),("binance","ETH/USDT")]:
@@ -322,7 +299,9 @@ def get_5m_data(symbol_key):
                 ex = getattr(ccxt, src)()
                 return fetch_ccxt(ex, sym, "5m", 200), src
             except: pass
-        return fetch_yf("ETH-USD","5d","5m"), "yf"
+        try:
+            return fetch_yf("ETH-USD","5d","5m"), "yf"
+        except: return None, None
 
     if symbol_key == "XRP/USD":
         for src, sym in [("binance","XRP/USDT"),("coinbase","XRP/USD")]:
@@ -330,7 +309,9 @@ def get_5m_data(symbol_key):
                 ex = getattr(ccxt, src)()
                 return fetch_ccxt(ex, sym, "5m", 200), src
             except: pass
-        return fetch_yf("XRP-USD","5d","5m"), "yf"
+        try:
+            return fetch_yf("XRP-USD","5d","5m"), "yf"
+        except: return None, None
 
     if symbol_key == "SOL/USD":
         for src, sym in [("binance","SOL/USDT"),("coinbase","SOL/USD")]:
@@ -338,33 +319,38 @@ def get_5m_data(symbol_key):
                 ex = getattr(ccxt, src)()
                 return fetch_ccxt(ex, sym, "5m", 200), src
             except: pass
-        return fetch_yf("SOL-USD","5d","5m"), "yf"
+        try:
+            return fetch_yf("SOL-USD","5d","5m"), "yf"
+        except: return None, None
 
     if symbol_key == "BNB/USD":
         try:
             ex = ccxt.binance()
             return fetch_ccxt(ex, "BNB/USDT", "5m", 200), "binance"
         except: pass
-        return fetch_yf("BNB-USD","5d","5m"), "yf"
+        try:
+            return fetch_yf("BNB-USD","5d","5m"), "yf"
+        except: return None, None
 
-    # Everything else via yfinance
-    yf_sym = mkt["yf"]
     if yf_sym:
-        return fetch_yf(yf_sym, "5d", "5m"), "yf"
+        try:
+            return fetch_yf(yf_sym, "5d", "5m"), "yf"
+        except: return None, None
+
     return None, None
 
 def get_htf_data(symbol_key):
     mkt    = MARKETS[symbol_key]
     yf_sym = mkt["yf"]
-    if symbol_key in ["BTC/USD","ETH/USD","XRP/USD","SOL/USD","BNB/USD"]:
-        srcs = {
-            "BTC/USD":  [("coinbase","BTC/USD"),("binance","BTC/USDT")],
-            "ETH/USD":  [("coinbase","ETH/USD"),("binance","ETH/USDT")],
-            "XRP/USD":  [("binance","XRP/USDT"),("coinbase","XRP/USD")],
-            "SOL/USD":  [("binance","SOL/USDT"),("coinbase","SOL/USD")],
-            "BNB/USD":  [("binance","BNB/USDT")],
-        }
-        for src, sym in srcs.get(symbol_key, []):
+    srcs   = {
+        "BTC/USD": [("coinbase","BTC/USD"),("binance","BTC/USDT")],
+        "ETH/USD": [("coinbase","ETH/USD"),("binance","ETH/USDT")],
+        "XRP/USD": [("binance","XRP/USDT"),("coinbase","XRP/USD")],
+        "SOL/USD": [("binance","SOL/USDT"),("coinbase","SOL/USD")],
+        "BNB/USD": [("binance","BNB/USDT")],
+    }
+    if symbol_key in srcs:
+        for src, sym in srcs[symbol_key]:
             try:
                 ex = getattr(ccxt, src)()
                 return fetch_ccxt(ex, sym, "1h", 250)
@@ -376,7 +362,7 @@ def get_htf_data(symbol_key):
     return None
 
 # ─────────────────────────────────────────────
-# HTF TREND (cached 1h)
+# HTF TREND
 # ─────────────────────────────────────────────
 def htf_trend(symbol_key):
     cache = _htf_cache[symbol_key]
@@ -384,22 +370,23 @@ def htf_trend(symbol_key):
     if now - cache["ts"] > HTF_REFRESH:
         df = get_htf_data(symbol_key)
         if df is not None and len(df) > 200:
-            cl       = pd.to_numeric(df["close"])
-            ema50    = ta.trend.EMAIndicator(cl, window=50).ema_indicator().iloc[-1]
-            ema200   = ta.trend.EMAIndicator(cl, window=200).ema_indicator().iloc[-1]
-            cache["trend"] = "BULL" if ema50 > ema200 else "BEAR"
+            cl     = pd.to_numeric(df["close"])
+            e50    = ta.trend.EMAIndicator(cl, 50).ema_indicator().iloc[-1]
+            e200   = ta.trend.EMAIndicator(cl, 200).ema_indicator().iloc[-1]
+            cache["trend"] = "BULL" if e50 > e200 else "BEAR"
         cache["ts"] = now
         log.info(f"HTF {MARKETS[symbol_key]['mt5']}: {cache['trend']}")
     return cache["trend"]
 
 # ─────────────────────────────────────────────
-# INDICATORS ON 5m
+# INDICATORS
 # ─────────────────────────────────────────────
 def add_ind(df):
     cl          = pd.to_numeric(df["close"])
     hi          = pd.to_numeric(df["high"])
     lo          = pd.to_numeric(df["low"])
     vol         = pd.to_numeric(df["volume"])
+    df          = df.copy()
     df["rsi"]   = ta.momentum.RSIIndicator(cl, 14).rsi()
     df["ema9"]  = ta.trend.EMAIndicator(cl, 9).ema_indicator()
     df["ema21"] = ta.trend.EMAIndicator(cl, 21).ema_indicator()
@@ -408,38 +395,35 @@ def add_ind(df):
     return df
 
 # ─────────────────────────────────────────────
-# 5 CONFIRMATION CONDITIONS
+# 5 CONDITIONS
 # ─────────────────────────────────────────────
 def check_conditions(df, trend):
-    last    = df.iloc[-1]
-    prev    = df.iloc[-2]
-    rsi     = float(last["rsi"])
-    ema9    = float(last["ema9"])
-    ema21   = float(last["ema21"])
-    vol     = float(last["volume"])
-    volma   = float(last["volma"])
-    close   = float(last["close"])
-    op      = float(last["open"])
-    hi      = float(last["high"])
-    lo      = float(last["low"])
-    atr     = float(last["atr"])
+    last  = df.iloc[-1]
+    rsi   = float(last["rsi"])
+    ema9  = float(last["ema9"])
+    ema21 = float(last["ema21"])
+    vol   = float(last["volume"])
+    volma = float(last["volma"])
+    close = float(last["close"])
+    op    = float(last["open"])
+    hi    = float(last["high"])
+    lo    = float(last["low"])
+    atr   = float(last["atr"])
 
-    body    = abs(close - op)
-    rng     = hi - lo if (hi - lo) > 0 else 0.0001
+    body     = abs(close - op)
+    rng      = hi - lo if (hi - lo) > 0 else 0.0001
     body_pct = body / rng
 
-    # BUY conditions
     buy = {
         "RSI oversold (<38)":    rsi < RSI_OS,
-        "EMA9 > EMA21 (cross)":  ema9 > ema21,
+        "EMA9 > EMA21":          ema9 > ema21,
         "Volume spike (1.1x)":   vol > volma * VOL_MULT,
         "Bullish candle (>50%)": close > op and body_pct > 0.5,
         "HTF trend BULL":        trend == "BULL",
     }
-    # SELL conditions
     sell = {
         "RSI overbought (>62)":  rsi > RSI_OB,
-        "EMA9 < EMA21 (cross)":  ema9 < ema21,
+        "EMA9 < EMA21":          ema9 < ema21,
         "Volume spike (1.1x)":   vol > volma * VOL_MULT,
         "Bearish candle (>50%)": close < op and body_pct > 0.5,
         "HTF trend BEAR":        trend == "BEAR",
@@ -451,11 +435,11 @@ def check_conditions(df, trend):
     return buy, sell, buy_score, sell_score, rsi, close, ema9, ema21, atr
 
 # ─────────────────────────────────────────────
-# SL FROM ATR (realistic, not %)
+# SL + TP
 # ─────────────────────────────────────────────
 def calc_sl_tp(price, direction, atr, symbol_key):
-    min_sl = MARKETS[symbol_key]["min_sl"]
-    sl_dist = max(atr * 1.5, min_sl)   # 1.5x ATR or minimum
+    min_sl  = MARKETS[symbol_key]["min_sl"]
+    sl_dist = max(atr * 1.5, min_sl)
     if direction == "BUY":
         sl = price - sl_dist
         tp = price + sl_dist * RR
@@ -472,10 +456,7 @@ def process(symbol_key):
     ok, session = in_session(symbol_key)
     if not ok:
         return "NONE"
-    if near_news():
-        return "NONE"
 
-    # Fetch 5m data
     result = get_5m_data(symbol_key)
     if result is None or result[0] is None:
         return "NONE"
@@ -483,7 +464,7 @@ def process(symbol_key):
     if len(df) < 50:
         return "NONE"
 
-    df = add_ind(df)
+    df   = add_ind(df)
     last = df.iloc[-1]
     if pd.isna(last["rsi"]) or pd.isna(last["ema9"]) or pd.isna(last["atr"]):
         return "NONE"
@@ -496,37 +477,37 @@ def process(symbol_key):
     buy, sell, buy_score, sell_score, rsi, close, ema9, ema21, atr = \
         check_conditions(df, trend)
 
-    mt5  = mkt["mt5"]
-    dec  = mkt["decimals"]
-    now  = time.time()
+    mt5 = mkt["mt5"]
+    dec = mkt["decimals"]
+    now = time.time()
 
-    # ── PRE-SIGNAL (2/5 conditions) ──
     best_score = max(buy_score, sell_score)
     direction  = "BUY" if buy_score >= sell_score else "SELL"
 
+    # ── PRE-SIGNAL 2/5 ──
     if best_score == 2:
         if now - _presig_sent[symbol_key] > PRESIG_COOLDOWN:
             _presig_sent[symbol_key] = now
-            checks = buy if direction == "BUY" else sell
+            checks  = buy if direction == "BUY" else sell
             waiting = [k for k, v in checks.items() if not v]
-            wait_str = "\n".join([f"  ⏳ {w}" for w in waiting])
+            wstr    = "\n".join([f"  ⏳ {w}" for w in waiting])
             msg = (
                 f"👀 *PRE-ALERT — {mt5}*\n\n"
-                f"*2/5 conditions met — building up!*\n\n"
+                f"*2/5 conditions met — building!*\n\n"
                 f"💹 *Price:* ${price:,.{dec}f}\n"
                 f"📊 *Direction:* {'Bullish 📈' if direction=='BUY' else 'Bearish 📉'}\n"
                 f"📈 *RSI:* {rsi:.1f}\n"
                 f"🌍 *HTF:* {trend}\n"
                 f"⏰ *Session:* {session}\n\n"
-                f"*Still need:*\n{wait_str}\n\n"
-                f"👀 *Watch this market!*\n"
+                f"*Still need:*\n{wstr}\n\n"
+                f"👀 *Watch this!*\n"
                 f"🔗 [Chart]({mkt['chart']})"
             )
             send_telegram(msg)
-            log.info(f"👀 PRE-ALERT {mt5} {direction} 2/5")
+            log.info(f"👀 PRE {mt5} {direction} 2/5")
         return "PRESIGNAL"
 
-    # ── CONFIRMED SIGNAL (3/5 conditions) ──
+    # ── CONFIRMED SIGNAL 3/5 ──
     if best_score >= CONFIRM_THRESHOLD:
         if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
             return "COOLDOWN"
@@ -565,8 +546,8 @@ def process(symbol_key):
             f"🌍 *HTF (1h):* {trend}\n"
             f"⏰ *Session:* {session}\n"
             f"📡 *Source:* {source}\n\n"
-            f"*Confirmed conditions ({best_score}/5):*\n{pass_str}\n\n"
-            f"📦 *Lot Sizes by Risk:*\n{lots}\n\n"
+            f"*Confirmed ({best_score}/5):*\n{pass_str}\n\n"
+            f"📦 *Lot Sizes:*\n{lots}\n\n"
             f"⚡ *ENTER NOW — 1:2 TARGET!*\n"
             f"🔗 [Open Chart]({mkt['chart']})"
         )
@@ -588,9 +569,6 @@ def process(symbol_key):
 # SCAN ALL 14
 # ─────────────────────────────────────────────
 def scan():
-    if near_news():
-        log.info("📰 News blackout — skipping")
-        return False
     fired = False
     with ThreadPoolExecutor(max_workers=14) as ex:
         futures = {ex.submit(process, s): s for s in SYMBOLS}
@@ -607,18 +585,19 @@ def scan():
 # ─────────────────────────────────────────────
 def main():
     log.info("═" * 60)
-    log.info("🚀 PEPPERSTONE MOMENTUM HUNTER v7.0")
+    log.info("🚀 PEPPERSTONE MOMENTUM HUNTER v7.1")
     log.info("📊 14 Markets — Pepperstone MT5")
     log.info("⚡ Timeframe : 5m signals + 1h trend")
     log.info("✅ Confirm  : 3/5 conditions = SIGNAL")
     log.info("👀 Pre-alert: 2/5 conditions = WARNING")
     log.info("🎯 Target   : 1:2 R:R fixed")
     log.info("📈 Trades   : 5-10 per day")
-    log.info("🛑 SL       : 1.5x ATR (realistic)")
+    log.info("🛑 SL       : 1.5x ATR realistic")
+    log.info("📰 News     : NO blackout — always trading")
     log.info("🌙 Crypto   : 24/7")
     log.info("═" * 60)
 
-    log.info("🔄 Warming up HTF cache...")
+    log.info("🔄 Warming HTF cache...")
     with ThreadPoolExecutor(max_workers=14) as ex:
         for s in SYMBOLS:
             ex.submit(htf_trend, s)
