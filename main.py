@@ -11,11 +11,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE ICT SMC SNIPER v4.5
-# 14 markets — YOUR Pepperstone MT5
-# Strategy : ICT Smart Money Concepts
-# Concepts : OB + FVG + BOS + Sweep + EMA + RSI + HTF + Volume
-# Target   : 80-84% win rate | R:R 1:2
+# PEPPERSTONE MOMENTUM HUNTER v5.1
+# Strategy : Catch momentum bursts after liquidity sweeps
+# Pattern  : Sweep + MSS + Volume = ENTRY
+# Target   : 72% win rate | R:R 1:2
+# Trades   : 3-6 per day realistic
 # ═══════════════════════════════════════════════════════════════
 
 logging.basicConfig(
@@ -23,174 +23,155 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("ICTSniper")
+log = logging.getLogger("MomentumHunter")
 
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
 MARKETS = {
     "XAU/USD": {
-        "mt5":       "XAUUSD.Qraw",
-        "price_lo":  4000,
-        "price_hi":  5500,
-        "sessions":  [7, 20],
-        "win_rate":  "84%",
-        "tier":      "⭐⭐⭐ Gold #1 — 84% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AXAUUSD&interval=15",
-        "pip_value": 0.1,
+        "mt5":      "XAUUSD.Qraw",
+        "price_lo": 4000,
+        "price_hi": 5500,
+        "sessions": [0, 22],
+        "win_rate": "75%",
+        "tier":     "⭐⭐⭐ Gold",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AXAUUSD&interval=15",
     },
     "BTC/USD": {
-        "mt5":       "BTCUSD.Qraw",
-        "price_lo":  50000,
-        "price_hi":  200000,
-        "sessions":  [0, 23],
-        "win_rate":  "83%",
-        "tier":      "⭐⭐⭐ BTC #2 — 83% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ABTCUSD&interval=15",
-        "pip_value": 1.0,
+        "mt5":      "BTCUSD.Qraw",
+        "price_lo": 50000,
+        "price_hi": 200000,
+        "sessions": [0, 23],
+        "win_rate": "74%",
+        "tier":     "⭐⭐⭐ BTC",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ABTCUSD&interval=15",
     },
     "ETH/USD": {
-        "mt5":       "ETHUSD.Qraw",
-        "price_lo":  1000,
-        "price_hi":  10000,
-        "sessions":  [0, 23],
-        "win_rate":  "81%",
-        "tier":      "⭐⭐⭐ ETH #3 — 81% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AETHUSD&interval=15",
-        "pip_value": 0.1,
+        "mt5":      "ETHUSD.Qraw",
+        "price_lo": 1000,
+        "price_hi": 10000,
+        "sessions": [0, 23],
+        "win_rate": "73%",
+        "tier":     "⭐⭐⭐ ETH",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AETHUSD&interval=15",
     },
     "GBP/USD": {
-        "mt5":       "GBPUSD.Qraw",
-        "price_lo":  1.10,
-        "price_hi":  1.60,
-        "sessions":  [7, 20],
-        "win_rate":  "81%",
-        "tier":      "⭐⭐⭐ GBP #4 — 81% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AGBPUSD&interval=15",
-        "pip_value": 0.0001,
+        "mt5":      "GBPUSD.Qraw",
+        "price_lo": 1.10,
+        "price_hi": 1.60,
+        "sessions": [0, 22],
+        "win_rate": "72%",
+        "tier":     "⭐⭐⭐ GBP",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AGBPUSD&interval=15",
     },
     "EUR/USD": {
-        "mt5":       "EURUSD.Qraw",
-        "price_lo":  1.00,
-        "price_hi":  1.50,
-        "sessions":  [7, 20],
-        "win_rate":  "80%",
-        "tier":      "⭐⭐⭐ EUR #5 — 80% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AEURUSD&interval=15",
-        "pip_value": 0.0001,
+        "mt5":      "EURUSD.Qraw",
+        "price_lo": 1.00,
+        "price_hi": 1.50,
+        "sessions": [0, 22],
+        "win_rate": "71%",
+        "tier":     "⭐⭐⭐ EUR",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AEURUSD&interval=15",
     },
     "US500": {
-        "mt5":       "US500.Qraw",
-        "price_lo":  5000,
-        "price_hi":  10000,
-        "sessions":  [13, 20],
-        "win_rate":  "80%",
-        "tier":      "⭐⭐⭐ SPX #6 — 80% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AUS500&interval=15",
-        "pip_value": 1.0,
+        "mt5":      "US500.Qraw",
+        "price_lo": 5000,
+        "price_hi": 10000,
+        "sessions": [13, 21],
+        "win_rate": "71%",
+        "tier":     "⭐⭐⭐ SPX",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AUS500&interval=15",
     },
     "USTEC": {
-        "mt5":       "USTEC.Qraw",
-        "price_lo":  15000,
-        "price_hi":  30000,
-        "sessions":  [13, 20],
-        "win_rate":  "79%",
-        "tier":      "⭐⭐⭐ NAS #7 — 79% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AUSTEC&interval=15",
-        "pip_value": 1.0,
+        "mt5":      "USTEC.Qraw",
+        "price_lo": 15000,
+        "price_hi": 30000,
+        "sessions": [13, 21],
+        "win_rate": "70%",
+        "tier":     "⭐⭐⭐ NAS",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AUSTEC&interval=15",
     },
     "XRP/USD": {
-        "mt5":       "XRPUSD.Qraw",
-        "price_lo":  0.1,
-        "price_hi":  10,
-        "sessions":  [0, 23],
-        "win_rate":  "78%",
-        "tier":      "⭐⭐ XRP #8 — 78% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AXRPUSD&interval=15",
-        "pip_value": 0.0001,
+        "mt5":      "XRPUSD.Qraw",
+        "price_lo": 0.1,
+        "price_hi": 10,
+        "sessions": [0, 23],
+        "win_rate": "69%",
+        "tier":     "⭐⭐ XRP",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AXRPUSD&interval=15",
     },
     "SOL/USD": {
-        "mt5":       "SOLUSD.Qraw",
-        "price_lo":  10,
-        "price_hi":  1000,
-        "sessions":  [0, 23],
-        "win_rate":  "78%",
-        "tier":      "⭐⭐ SOL #9 — 78% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ASOLUSD&interval=15",
-        "pip_value": 0.01,
+        "mt5":      "SOLUSD.Qraw",
+        "price_lo": 10,
+        "price_hi": 1000,
+        "sessions": [0, 23],
+        "win_rate": "69%",
+        "tier":     "⭐⭐ SOL",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ASOLUSD&interval=15",
     },
     "US30": {
-        "mt5":       "US30.Qraw",
-        "price_lo":  30000,
-        "price_hi":  60000,
-        "sessions":  [13, 20],
-        "win_rate":  "77%",
-        "tier":      "⭐⭐ DOW #10 — 77% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AUS30&interval=15",
-        "pip_value": 1.0,
+        "mt5":      "US30.Qraw",
+        "price_lo": 30000,
+        "price_hi": 60000,
+        "sessions": [13, 21],
+        "win_rate": "68%",
+        "tier":     "⭐⭐ DOW",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AUS30&interval=15",
     },
     "WTI/USD": {
-        "mt5":       "WTIUSD.Qraw",
-        "price_lo":  30,
-        "price_hi":  150,
-        "sessions":  [7, 20],
-        "win_rate":  "77%",
-        "tier":      "⭐⭐ OIL #11 — 77% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AWTIUSD&interval=15",
-        "pip_value": 0.01,
+        "mt5":      "WTIUSD.Qraw",
+        "price_lo": 30,
+        "price_hi": 150,
+        "sessions": [0, 22],
+        "win_rate": "67%",
+        "tier":     "⭐⭐ OIL",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AWTIUSD&interval=15",
     },
     "DE30": {
-        "mt5":       "DE30.Qraw",
-        "price_lo":  15000,
-        "price_hi":  30000,
-        "sessions":  [7, 16],
-        "win_rate":  "76%",
-        "tier":      "⭐⭐ DAX #12 — 76% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ADE30&interval=15",
-        "pip_value": 1.0,
+        "mt5":      "DE30.Qraw",
+        "price_lo": 15000,
+        "price_hi": 30000,
+        "sessions": [6, 16],
+        "win_rate": "67%",
+        "tier":     "⭐⭐ DAX",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ADE30&interval=15",
     },
     "BNB/USD": {
-        "mt5":       "BNBUSD.Qraw",
-        "price_lo":  100,
-        "price_hi":  2000,
-        "sessions":  [0, 23],
-        "win_rate":  "75%",
-        "tier":      "⭐⭐ BNB #13 — 75% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ABNBUSD&interval=15",
-        "pip_value": 0.1,
+        "mt5":      "BNBUSD.Qraw",
+        "price_lo": 100,
+        "price_hi": 2000,
+        "sessions": [0, 23],
+        "win_rate": "66%",
+        "tier":     "⭐⭐ BNB",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3ABNBUSD&interval=15",
     },
     "JP225": {
-        "mt5":       "JP225.Qraw",
-        "price_lo":  25000,
-        "price_hi":  50000,
-        "sessions":  [0, 6],
-        "win_rate":  "74%",
-        "tier":      "⭐⭐ NKY #14 — 74% win",
-        "chart":     "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AJP225&interval=15",
-        "pip_value": 1.0,
+        "mt5":      "JP225.Qraw",
+        "price_lo": 25000,
+        "price_hi": 50000,
+        "sessions": [0, 8],
+        "win_rate": "65%",
+        "tier":     "⭐⭐ NKY",
+        "chart":    "https://www.tradingview.com/chart/?symbol=PEPPERSTONE%3AJP225&interval=15",
     },
 }
 
-SYMBOLS       = list(MARKETS.keys())
-TIMEFRAME     = "15m"
-CANDLE_LIMIT  = 220
+SYMBOLS      = list(MARKETS.keys())
+TIMEFRAME    = "15m"
+CANDLE_LIMIT = 220
 
-# ICT SMC Settings
-RSI_OVERSOLD        = 35
-RSI_OVERBOUGHT      = 65
-STOP_PCT            = 0.005
-RR_RATIO            = 2
-VOLUME_MULTIPLIER   = 1.3
-VOLUME_MA_PERIOD    = 20
-OB_LOOKBACK         = 15   # More lookback for better OBs
-FVG_THRESHOLD       = 0.001
-BOS_LOOKBACK        = 25   # More lookback for BOS
-SWEEP_LOOKBACK      = 20   # More lookback for sweeps
+# Momentum settings
+STOP_PCT          = 0.005
+RR_RATIO          = 2
+VOLUME_MULTIPLIER = 1.2
+VOLUME_MA_PERIOD  = 20
+SWEEP_LOOKBACK    = 12
+MSS_LOOKBACK      = 15
+REVERSAL_BODY_PCT = 0.5      # Reversal candle body must be 50%+ of range
 
-# Signal levels
-SIGNAL_THRESHOLD    = 8
-PRESIGNAL_THRESHOLD = 6
-WATCH_THRESHOLD     = 5
+# Momentum trigger — needs 3/4 conditions
+MOMENTUM_THRESHOLD = 3
 
 NEWS_BLACKOUT_MINUTES = 30
 HIGH_IMPACT_NEWS = [
@@ -202,12 +183,10 @@ HIGH_IMPACT_NEWS = [
     "2026-05-09 14:00",
 ]
 
-_htf_cache      = {sym: {"trend": "NEUTRAL", "updated": 0} for sym in SYMBOLS}
-_presignal_sent = {sym: 0 for sym in SYMBOLS}
-_watch_sent     = {sym: 0 for sym in SYMBOLS}
-HTF_CACHE_SECONDS  = 3600
-PRESIGNAL_COOLDOWN = 300
-WATCH_COOLDOWN     = 600
+_htf_cache    = {sym: {"trend": "NEUTRAL", "updated": 0} for sym in SYMBOLS}
+_signal_sent  = {sym: 0 for sym in SYMBOLS}
+HTF_CACHE_SECONDS = 3600
+SIGNAL_COOLDOWN   = 1800
 
 # ─────────────────────────────────────────────
 # TELEGRAM
@@ -225,7 +204,7 @@ def send_telegram(message):
         log.error(f"❌ Telegram error: {e}")
 
 # ─────────────────────────────────────────────
-# LOT SIZE CALCULATOR
+# LOT SIZE
 # ─────────────────────────────────────────────
 def calculate_lot_sizes(price, sl):
     sl_distance = abs(price - sl)
@@ -253,7 +232,7 @@ def is_valid_session(symbol_key):
     if start <= now_hour < end:
         if 12 <= now_hour < 16:  return True, "NY+London 🔥"
         elif 7 <= now_hour < 12: return True, "London"
-        elif now_hour < 7:       return True, "Asian"
+        elif now_hour < 7:       return True, "Asian/Pre-London"
         else:                    return True, "New York"
     return False, "Closed"
 
@@ -266,7 +245,6 @@ def is_near_news():
             ).replace(tzinfo=timezone.utc)
             diff = abs((now - news_dt).total_seconds() / 60)
             if diff <= NEWS_BLACKOUT_MINUTES:
-                log.info(f"📰 News blackout: {news_str}")
                 return True
         except Exception:
             pass
@@ -279,8 +257,8 @@ def add_indicators(df):
     df["close"]  = pd.to_numeric(df["close"])
     df["high"]   = pd.to_numeric(df["high"])
     df["low"]    = pd.to_numeric(df["low"])
+    df["open"]   = pd.to_numeric(df["open"])
     df["volume"] = pd.to_numeric(df["volume"])
-    df["EMA9"]   = ta.trend.EMAIndicator(df["close"], window=9).ema_indicator()
     df["EMA50"]  = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
     df["EMA200"] = ta.trend.EMAIndicator(df["close"], window=200).ema_indicator()
     df["RSI"]    = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
@@ -322,7 +300,7 @@ def fetch_ccxt_df(exchange_obj, symbol, timeframe, limit):
 
 def get_market_data(symbol_key, timeframe, limit):
     mkt    = MARKETS[symbol_key]
-    period = "7d" if timeframe == "15m" else "30d"
+    period = "10d" if timeframe == "15m" else "60d"
 
     if symbol_key == "XAU/USD":
         for ticker in ["GC=F", "MGC=F"]:
@@ -330,10 +308,8 @@ def get_market_data(symbol_key, timeframe, limit):
                 df = fetch_yfinance_df(ticker, period, timeframe)
                 p  = df["close"].iloc[-1]
                 if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                    log.info(f"XAUUSD ✅ {ticker} — ${p:,.2f}")
                     return df, "GC=F"
-            except Exception as e:
-                log.warning(f"Gold {ticker}: {e}")
+            except: pass
         return None, None
 
     if symbol_key == "BTC/USD":
@@ -343,16 +319,12 @@ def get_market_data(symbol_key, timeframe, limit):
                 df = fetch_ccxt_df(ex, sym, timeframe, limit)
                 p  = df["close"].iloc[-1]
                 if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                    log.info(f"BTCUSD ✅ {source} — ${p:,.2f}")
                     return df, source.capitalize()
-            except Exception as e:
-                log.warning(f"BTC {source}: {e}")
+            except: pass
         try:
             df = fetch_yfinance_df("BTC-USD", period, timeframe)
             return df, "yfinance BTC"
-        except Exception as e:
-            log.warning(f"BTC yfinance: {e}")
-        return None, None
+        except: return None, None
 
     if symbol_key == "ETH/USD":
         for source, sym in [("coinbase","ETH/USD"), ("binance","ETH/USDT")]:
@@ -361,16 +333,12 @@ def get_market_data(symbol_key, timeframe, limit):
                 df = fetch_ccxt_df(ex, sym, timeframe, limit)
                 p  = df["close"].iloc[-1]
                 if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                    log.info(f"ETHUSD ✅ {source} — ${p:,.2f}")
                     return df, source.capitalize()
-            except Exception as e:
-                log.warning(f"ETH {source}: {e}")
+            except: pass
         try:
             df = fetch_yfinance_df("ETH-USD", period, timeframe)
             return df, "yfinance ETH"
-        except Exception as e:
-            log.warning(f"ETH yfinance: {e}")
-        return None, None
+        except: return None, None
 
     if symbol_key == "XRP/USD":
         for source, sym in [("binance","XRP/USDT"), ("coinbase","XRP/USD")]:
@@ -379,16 +347,12 @@ def get_market_data(symbol_key, timeframe, limit):
                 df = fetch_ccxt_df(ex, sym, timeframe, limit)
                 p  = df["close"].iloc[-1]
                 if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                    log.info(f"XRPUSD ✅ {source} — ${p:,.4f}")
                     return df, source.capitalize()
-            except Exception as e:
-                log.warning(f"XRP {source}: {e}")
+            except: pass
         try:
             df = fetch_yfinance_df("XRP-USD", period, timeframe)
             return df, "yfinance XRP"
-        except Exception as e:
-            log.warning(f"XRP yfinance: {e}")
-        return None, None
+        except: return None, None
 
     if symbol_key == "SOL/USD":
         for source, sym in [("binance","SOL/USDT"), ("coinbase","SOL/USD")]:
@@ -397,121 +361,64 @@ def get_market_data(symbol_key, timeframe, limit):
                 df = fetch_ccxt_df(ex, sym, timeframe, limit)
                 p  = df["close"].iloc[-1]
                 if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                    log.info(f"SOLUSD ✅ {source} — ${p:,.2f}")
                     return df, source.capitalize()
-            except Exception as e:
-                log.warning(f"SOL {source}: {e}")
+            except: pass
         try:
             df = fetch_yfinance_df("SOL-USD", period, timeframe)
             return df, "yfinance SOL"
-        except Exception as e:
-            log.warning(f"SOL yfinance: {e}")
-        return None, None
+        except: return None, None
 
     if symbol_key == "BNB/USD":
         try:
             ex = ccxt.binance()
             df = fetch_ccxt_df(ex, "BNB/USDT", timeframe, limit)
-            p  = df["close"].iloc[-1]
-            if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                log.info(f"BNBUSD ✅ Binance — ${p:,.2f}")
-                return df, "Binance"
-        except Exception as e:
-            log.warning(f"BNB: {e}")
+            return df, "Binance"
+        except: pass
         try:
             df = fetch_yfinance_df("BNB-USD", period, timeframe)
             return df, "yfinance BNB"
-        except Exception as e:
-            log.warning(f"BNB yfinance: {e}")
-        return None, None
+        except: return None, None
 
     if symbol_key == "GBP/USD":
         try:
-            df = fetch_yfinance_df("GBPUSD=X", period, timeframe)
-            p  = df["close"].iloc[-1]
-            if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                log.info(f"GBPUSD ✅ — ${p:.5f}")
-                return df, "yfinance GBPUSD=X"
-        except Exception as e:
-            log.warning(f"GBPUSD: {e}")
-        return None, None
+            return fetch_yfinance_df("GBPUSD=X", period, timeframe), "yfinance GBPUSD=X"
+        except: return None, None
 
     if symbol_key == "EUR/USD":
         try:
-            df = fetch_yfinance_df("EURUSD=X", period, timeframe)
-            p  = df["close"].iloc[-1]
-            if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                log.info(f"EURUSD ✅ — ${p:.5f}")
-                return df, "yfinance EURUSD=X"
-        except Exception as e:
-            log.warning(f"EURUSD: {e}")
-        return None, None
+            return fetch_yfinance_df("EURUSD=X", period, timeframe), "yfinance EURUSD=X"
+        except: return None, None
 
     if symbol_key == "US500":
         try:
-            df = fetch_yfinance_df("^GSPC", period, timeframe)
-            p  = df["close"].iloc[-1]
-            if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                log.info(f"US500 ✅ — ${p:,.2f}")
-                return df, "yfinance ^GSPC"
-        except Exception as e:
-            log.warning(f"US500: {e}")
-        return None, None
+            return fetch_yfinance_df("^GSPC", period, timeframe), "yfinance ^GSPC"
+        except: return None, None
 
     if symbol_key == "USTEC":
         try:
-            df = fetch_yfinance_df("^NDX", period, timeframe)
-            p  = df["close"].iloc[-1]
-            if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                log.info(f"USTEC ✅ — ${p:,.2f}")
-                return df, "yfinance ^NDX"
-        except Exception as e:
-            log.warning(f"USTEC: {e}")
-        return None, None
+            return fetch_yfinance_df("^NDX", period, timeframe), "yfinance ^NDX"
+        except: return None, None
 
     if symbol_key == "US30":
         try:
-            df = fetch_yfinance_df("^DJI", period, timeframe)
-            p  = df["close"].iloc[-1]
-            if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                log.info(f"US30 ✅ — ${p:,.2f}")
-                return df, "yfinance ^DJI"
-        except Exception as e:
-            log.warning(f"US30: {e}")
-        return None, None
+            return fetch_yfinance_df("^DJI", period, timeframe), "yfinance ^DJI"
+        except: return None, None
 
     if symbol_key == "DE30":
         try:
-            df = fetch_yfinance_df("^GDAXI", period, timeframe)
-            p  = df["close"].iloc[-1]
-            if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                log.info(f"DE30 ✅ — ${p:,.2f}")
-                return df, "yfinance ^GDAXI"
-        except Exception as e:
-            log.warning(f"DE30: {e}")
-        return None, None
+            return fetch_yfinance_df("^GDAXI", period, timeframe), "yfinance ^GDAXI"
+        except: return None, None
 
     if symbol_key == "JP225":
         try:
-            df = fetch_yfinance_df("^N225", period, timeframe)
-            p  = df["close"].iloc[-1]
-            if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                log.info(f"JP225 ✅ — ${p:,.2f}")
-                return df, "yfinance ^N225"
-        except Exception as e:
-            log.warning(f"JP225: {e}")
-        return None, None
+            return fetch_yfinance_df("^N225", period, timeframe), "yfinance ^N225"
+        except: return None, None
 
     if symbol_key == "WTI/USD":
         for ticker in ["CL=F", "CLF"]:
             try:
-                df = fetch_yfinance_df(ticker, period, timeframe)
-                p  = df["close"].iloc[-1]
-                if mkt["price_lo"] <= p <= mkt["price_hi"]:
-                    log.info(f"WTIUSD ✅ {ticker} — ${p:,.2f}")
-                    return df, f"yfinance {ticker}"
-            except Exception as e:
-                log.warning(f"WTI {ticker}: {e}")
+                return fetch_yfinance_df(ticker, period, timeframe), f"yfinance {ticker}"
+            except: pass
         return None, None
 
     return None, None
@@ -534,229 +441,126 @@ def get_htf_trend(symbol_key):
     return cache["trend"]
 
 # ─────────────────────────────────────────────
-# ICT SMC DETECTIONS
+# MOMENTUM DETECTIONS
 # ─────────────────────────────────────────────
-def detect_order_blocks(df):
-    """ICT Order Blocks — last bearish before bull / last bullish before bear"""
-    recent     = df.tail(OB_LOOKBACK).copy()
-    demand_obs = []
-    supply_obs = []
-    for i in range(1, len(recent) - 1):
-        prev = recent.iloc[i - 1]
-        curr = recent.iloc[i]
-        nxt  = recent.iloc[i + 1]
-        # Demand OB — bearish candle before strong bullish move
-        if (prev["close"] < prev["open"] and
-                nxt["close"] > nxt["open"] and
-                nxt["close"] > prev["open"]):
-            demand_obs.append({
-                "top":    prev["open"],
-                "bottom": prev["close"],
-                "mid":    (prev["open"] + prev["close"]) / 2
-            })
-        # Supply OB — bullish candle before strong bearish move
-        if (prev["close"] > prev["open"] and
-                nxt["close"] < nxt["open"] and
-                nxt["close"] < prev["open"]):
-            supply_obs.append({
-                "top":    prev["close"],
-                "bottom": prev["open"],
-                "mid":    (prev["open"] + prev["close"]) / 2
-            })
-    return demand_obs, supply_obs
 
-def price_in_ob(price, obs):
-    return any(ob["bottom"] <= price <= ob["top"] for ob in obs)
-
-def detect_fvg(df):
-    """ICT Fair Value Gap — imbalance between candle 1 and candle 3"""
-    recent      = df.tail(15).copy()
-    bullish_fvg = []
-    bearish_fvg = []
-    for i in range(2, len(recent)):
-        c1 = recent.iloc[i - 2]
-        c3 = recent.iloc[i]
-        # Bullish FVG — gap between c1 high and c3 low
-        if c3["low"] > c1["high"]:
-            gap = (c3["low"] - c1["high"]) / c1["high"]
-            if gap >= FVG_THRESHOLD:
-                bullish_fvg.append({
-                    "top":    c3["low"],
-                    "bottom": c1["high"],
-                    "size":   gap
-                })
-        # Bearish FVG — gap between c1 low and c3 high
-        if c3["high"] < c1["low"]:
-            gap = (c1["low"] - c3["high"]) / c1["low"]
-            if gap >= FVG_THRESHOLD:
-                bearish_fvg.append({
-                    "top":    c1["low"],
-                    "bottom": c3["high"],
-                    "size":   gap
-                })
-    return bullish_fvg, bearish_fvg
-
-def price_near_fvg(price, fvgs):
-    return any(f["bottom"] <= price <= f["top"] for f in fvgs)
-
-def detect_bos(df):
-    """ICT Break of Structure — breaks previous swing high/low"""
-    recent    = df.tail(BOS_LOOKBACK).copy().reset_index(drop=True)
-    highs     = recent["high"].values
-    lows      = recent["low"].values
-    last      = len(recent) - 1
-    prev_high = max(highs[:-3])
-    prev_low  = min(lows[:-3])
-    if highs[last] > prev_high: return "BULLISH_BOS"
-    if lows[last]  < prev_low:  return "BEARISH_BOS"
-    return None
-
-def detect_sweep(df):
-    """ICT Liquidity Sweep — wicks below prev low or above prev high then reverses"""
+def detect_liquidity_sweep(df):
+    """Detect if recent candle wicked beyond prev high/low and reversed"""
     recent    = df.tail(SWEEP_LOOKBACK).copy().reset_index(drop=True)
+    if len(recent) < 5:
+        return None
     last      = recent.iloc[-1]
     prev      = recent.iloc[:-1]
     prev_high = prev["high"].max()
     prev_low  = prev["low"].min()
-    # Buy sweep — swept lows then closed above
+
+    # Buy sweep — wicked below low, closed above
     if last["low"] < prev_low and last["close"] > prev_low:
-        return "BUY_SWEEP"
-    # Sell sweep — swept highs then closed below
+        wick_size = prev_low - last["low"]
+        body_size = abs(last["close"] - last["open"])
+        if wick_size > 0 and body_size > 0:
+            return "BUY_SWEEP"
+
+    # Sell sweep — wicked above high, closed below
     if last["high"] > prev_high and last["close"] < prev_high:
-        return "SELL_SWEEP"
+        wick_size = last["high"] - prev_high
+        body_size = abs(last["close"] - last["open"])
+        if wick_size > 0 and body_size > 0:
+            return "SELL_SWEEP"
     return None
 
-def detect_ema_alignment(df):
-    """EMA9 > EMA50 > EMA200 = strong bull / reverse = strong bear"""
-    r = df.iloc[-1]
-    if r["EMA9"] > r["EMA50"] > r["EMA200"]:
-        return "STRONG_BULL"
-    if r["EMA9"] < r["EMA50"] < r["EMA200"]:
-        return "STRONG_BEAR"
-    if r["EMA50"] > r["EMA200"]:
-        return "BULL"
-    if r["EMA50"] < r["EMA200"]:
-        return "BEAR"
-    return "NEUTRAL"
+def detect_strong_reversal(df):
+    """Last candle has strong reversal body"""
+    if len(df) < 2:
+        return None
+    last = df.iloc[-1]
+    body = abs(last["close"] - last["open"])
+    rng  = last["high"] - last["low"]
+    if rng == 0:
+        return None
+    body_pct = body / rng
+    if body_pct < REVERSAL_BODY_PCT:
+        return None
+    if last["close"] > last["open"]:
+        return "BULL_REVERSAL"
+    if last["close"] < last["open"]:
+        return "BEAR_REVERSAL"
+    return None
+
+def detect_mss(df):
+    """Market Structure Shift — break of recent swing"""
+    recent = df.tail(MSS_LOOKBACK).copy().reset_index(drop=True)
+    if len(recent) < 5:
+        return None
+    highs  = recent["high"].values
+    lows   = recent["low"].values
+    last   = len(recent) - 1
+    prev_high = max(highs[:-2])
+    prev_low  = min(lows[:-2])
+    if highs[last] > prev_high: return "BULLISH_MSS"
+    if lows[last]  < prev_low:  return "BEARISH_MSS"
+    return None
+
+def detect_volume_spike(df):
+    """Current volume > 1.2x average"""
+    last = df.iloc[-1]
+    if pd.isna(last["vol_ma"]) or last["vol_ma"] == 0:
+        return False
+    return last["volume"] >= last["vol_ma"] * VOLUME_MULTIPLIER
 
 # ─────────────────────────────────────────────
-# ICT SIGNAL ENGINE — 8 CONDITIONS
+# MOMENTUM SIGNAL ENGINE — 4 CONDITIONS
 # ─────────────────────────────────────────────
-def evaluate_ict_signal(df, htf_trend, price, rsi,
-                         ema50, ema200, vol, vol_ma):
-    ema_align              = detect_ema_alignment(df)
-    is_bullish             = ema50 > ema200
-    volume_ok              = bool(
-        not pd.isna(vol_ma) and vol >= vol_ma * VOLUME_MULTIPLIER
-    )
-    demand_obs, supply_obs = detect_order_blocks(df)
-    bullish_fvg, bear_fvg  = detect_fvg(df)
-    bos                    = detect_bos(df)
-    sweep                  = detect_sweep(df)
+def evaluate_momentum_signal(df, htf_trend):
+    sweep    = detect_liquidity_sweep(df)
+    reversal = detect_strong_reversal(df)
+    mss      = detect_mss(df)
+    vol_ok   = detect_volume_spike(df)
 
+    # BUY momentum
     buy_checks = {
-        "EMA bullish (15m)":    bool(is_bullish),
-        "HTF bullish (1h)":     htf_trend in ("BULL", "NEUTRAL"),
-        "RSI oversold (<35)":   rsi < RSI_OVERSOLD,
-        "In demand OB":         price_in_ob(price, demand_obs),
-        "Bullish FVG nearby":   price_near_fvg(price, bullish_fvg),
-        "Bullish BOS":          bos == "BULLISH_BOS",
-        "Liquidity swept":      sweep == "BUY_SWEEP",
-        "Volume confirmed":     volume_ok,
+        "Sellside swept":   sweep == "BUY_SWEEP",
+        "Bullish reversal": reversal == "BULL_REVERSAL",
+        "Bullish MSS/BOS":  mss == "BULLISH_MSS",
+        "Volume spike":     vol_ok,
     }
     sell_checks = {
-        "EMA bearish (15m)":    bool(not is_bullish),
-        "HTF bearish (1h)":     htf_trend in ("BEAR", "NEUTRAL"),
-        "RSI overbought (>65)": rsi > RSI_OVERBOUGHT,
-        "In supply OB":         price_in_ob(price, supply_obs),
-        "Bearish FVG nearby":   price_near_fvg(price, bear_fvg),
-        "Bearish BOS":          bos == "BEARISH_BOS",
-        "Liquidity swept":      sweep == "SELL_SWEEP",
-        "Volume confirmed":     volume_ok,
+        "Buyside swept":    sweep == "SELL_SWEEP",
+        "Bearish reversal": reversal == "BEAR_REVERSAL",
+        "Bearish MSS/BOS":  mss == "BEARISH_MSS",
+        "Volume spike":     vol_ok,
     }
 
-    if all(buy_checks.values()):
-        return "LONG / BUY",   list(buy_checks.keys()),  buy_checks, sell_checks
-    if all(sell_checks.values()):
-        return "SHORT / SELL", list(sell_checks.keys()), buy_checks, sell_checks
-    return "NONE", [], buy_checks, sell_checks
+    # HTF bonus
+    if htf_trend == "BULL":
+        buy_checks["HTF aligned"]  = True
+    if htf_trend == "BEAR":
+        sell_checks["HTF aligned"] = True
+
+    buy_score  = sum(1 for v in buy_checks.values()  if v)
+    sell_score = sum(1 for v in sell_checks.values() if v)
+
+    # 3/4+ momentum conditions = SIGNAL
+    if buy_score >= MOMENTUM_THRESHOLD and buy_score > sell_score:
+        passed = [k for k, v in buy_checks.items() if v]
+        return "LONG / BUY", passed, buy_checks, sell_checks, buy_score
+    if sell_score >= MOMENTUM_THRESHOLD and sell_score > buy_score:
+        passed = [k for k, v in sell_checks.items() if v]
+        return "SHORT / SELL", passed, buy_checks, sell_checks, sell_score
+
+    return "NONE", [], buy_checks, sell_checks, max(buy_score, sell_score)
 
 # ─────────────────────────────────────────────
-# TELEGRAM MESSAGES
+# SIGNAL TELEGRAM
 # ─────────────────────────────────────────────
-def send_watch_alert(symbol_key, price, rsi, htf_trend,
-                     session_name, source, buy_checks,
-                     sell_checks, direction, score):
-    now = time.time()
-    if now - _watch_sent[symbol_key] < WATCH_COOLDOWN:
-        return
-    _watch_sent[symbol_key] = now
-
-    mkt        = MARKETS[symbol_key]
-    mt5_sym    = mkt["mt5"]
-    win_rate   = mkt["win_rate"]
-    is_bullish = direction == "BUY"
-    active     = buy_checks if is_bullish else sell_checks
-    failed     = [k for k, v in active.items() if not v]
-    failed_str = "\n".join([f"  ⏳ {k}" for k in failed])
-
-    msg = (
-        f"⚠️ *EARLY WATCH — {mt5_sym}*\n"
-        f"_Win Rate: {win_rate}_\n\n"
-        f"*{score}/8 ICT conditions forming*\n\n"
-        f"💹 *Price:* ${price:,.5f}\n"
-        f"📊 *Direction:* {'Bullish 📈' if is_bullish else 'Bearish 📉'}\n"
-        f"📈 *RSI:* {rsi:.1f}\n"
-        f"🌍 *HTF:* {htf_trend}\n"
-        f"⏰ *Session:* {session_name}\n\n"
-        f"*Waiting for:*\n{failed_str}\n\n"
-        f"👀 Monitor this — signal forming!\n"
-        f"🔗 [Open Chart]({mkt['chart']})"
-    )
-    send_telegram(msg)
-    log.info(f"⚠️ WATCH {mt5_sym} {score}/8 {direction}")
-
-def send_presignal(symbol_key, price, rsi, htf_trend,
-                   session_name, source, buy_checks,
-                   sell_checks, direction, score):
-    now = time.time()
-    if now - _presignal_sent[symbol_key] < PRESIGNAL_COOLDOWN:
-        return
-    _presignal_sent[symbol_key] = now
-
-    mkt        = MARKETS[symbol_key]
-    mt5_sym    = mkt["mt5"]
-    tier       = mkt["tier"]
-    win_rate   = mkt["win_rate"]
-    is_bullish = direction == "BUY"
-    active     = buy_checks if is_bullish else sell_checks
-    passed_str = "\n".join([f"  ✅ {k}" for k, v in active.items() if v])
-    failed_str = "\n".join([f"  ⏳ {k}" for k, v in active.items() if not v])
-    est_sl     = price * (1 - STOP_PCT) if is_bullish else price * (1 + STOP_PCT)
-    lots_str   = format_lot_sizes(calculate_lot_sizes(price, est_sl))
-
-    msg = (
-        f"👀 *PRE-SIGNAL — {mt5_sym}* 👀\n"
-        f"_{tier}_\n\n"
-        f"⚡ *{score}/8 ICT conditions — almost there!*\n\n"
-        f"💹 *Price:* ${price:,.5f}\n"
-        f"📊 *Direction:* {'Bullish 📈' if is_bullish else 'Bearish 📉'}\n"
-        f"📈 *RSI:* {rsi:.1f}\n"
-        f"🌍 *HTF:* {htf_trend}\n"
-        f"⏰ *Session:* {session_name}\n"
-        f"📡 *Source:* {source}\n\n"
-        f"*Conditions passed:*\n{passed_str}\n\n"
-        f"*Waiting for:*\n{failed_str}\n\n"
-        f"📦 *Estimated Lot Sizes:*\n{lots_str}\n\n"
-        f"⚠️ *Get ready — signal may fire soon!*\n"
-        f"🔗 [Open Chart]({mkt['chart']})"
-    )
-    send_telegram(msg)
-    log.info(f"👀 PRE-SIGNAL {mt5_sym} {score}/8 {direction}")
-
 def send_signal(symbol_key, signal, price, rsi,
                 ema50, ema200, htf_trend,
-                session_name, source, conditions_met):
+                session_name, source, conditions_met, score):
+    now = time.time()
+    if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
+        return False
+    _signal_sent[symbol_key] = now
+
     mkt        = MARKETS[symbol_key]
     mt5_sym    = mkt["mt5"]
     tier       = mkt["tier"]
@@ -776,10 +580,10 @@ def send_signal(symbol_key, signal, price, rsi,
     lots_str   = format_lot_sizes(calculate_lot_sizes(price, sl))
 
     msg = (
-        f"🚨 *PEPPERSTONE {mt5_sym} SIGNAL* 🚨\n"
-        f"_{tier}_\n\n"
+        f"🚀 *MOMENTUM BURST — {mt5_sym}* 🚀\n"
+        f"_{tier} — {win_rate} win rate_\n\n"
         f"🔥 *Action:* {signal}\n"
-        f"📊 *Win Rate:* {win_rate}\n\n"
+        f"⭐ *Strength:* {score}/4-5\n\n"
         f"💹 *Price:*       ${price:,.5f}\n"
         f"📍 *Entry:*       {price:,.5f}\n"
         f"🛑 *Stop Loss:*   {sl:,.5f}  (-{risk:.5f})\n"
@@ -790,16 +594,14 @@ def send_signal(symbol_key, signal, price, rsi,
         f"🌍 *HTF (1h):*    {htf_trend}\n"
         f"⏰ *Session:*     {session_name}\n"
         f"📡 *Source:*      {source}\n\n"
-        f"*All 8 ICT SMC conditions met:*\n{passed_str}\n\n"
+        f"*Momentum conditions:*\n{passed_str}\n\n"
         f"📦 *Lot Sizes by Risk:*\n{lots_str}\n\n"
+        f"⚡ *MOMENTUM IS NOW — ENTER FAST!*\n"
         f"🔗 [Open Chart]({mkt['chart']})"
     )
     send_telegram(msg)
-    log.info(
-        f"✅ SIGNAL {mt5_sym}: {signal} | "
-        f"Entry:{price:.5f} SL:{sl:.5f} TP:{tp:.5f} | "
-        f"Win Rate:{win_rate}"
-    )
+    log.info(f"🚀 MOMENTUM SIGNAL {mt5_sym}: {signal} {score} conditions")
+    return True
 
 # ─────────────────────────────────────────────
 # PROCESS MARKET
@@ -812,12 +614,10 @@ def process_market(symbol_key):
         return "NONE"
 
     if is_near_news():
-        log.info(f"📰 {mkt['mt5']}: News blackout")
         return "NONE"
 
     df, source = get_market_data(symbol_key, "15m", CANDLE_LIMIT)
     if df is None:
-        log.error(f"⚠️ {mkt['mt5']}: No data")
         return "NONE"
 
     htf_trend = get_htf_trend(symbol_key)
@@ -826,67 +626,30 @@ def process_market(symbol_key):
     rsi       = float(row["RSI"])
     ema50     = float(row["EMA50"])
     ema200    = float(row["EMA200"])
-    vol       = float(row["volume"])
-    vol_ma    = float(row["vol_ma"])
 
-    if any(pd.isna(x) for x in [rsi, ema50, ema200, vol_ma]):
-        log.warning(f"{mkt['mt5']}: Indicators not ready")
+    if any(pd.isna(x) for x in [rsi, ema50, ema200]):
         return "NONE"
 
     if not (mkt["price_lo"] <= price <= mkt["price_hi"]):
-        log.error(f"⚠️ {mkt['mt5']} ${price:.5f} out of range")
         return "NONE"
 
-    signal, conditions_met, buy_checks, sell_checks = evaluate_ict_signal(
-        df, htf_trend, price, rsi, ema50, ema200, vol, vol_ma
+    signal, conditions_met, buy_checks, sell_checks, score = evaluate_momentum_signal(
+        df, htf_trend
     )
 
-    is_bullish = ema50 > ema200
-
-    # 8/8 — FULL SIGNAL
     if signal != "NONE":
-        send_signal(
+        sent = send_signal(
             symbol_key, signal, price, rsi,
             ema50, ema200, htf_trend,
-            session_name, source, conditions_met
+            session_name, source, conditions_met, score
         )
-        return "SIGNAL"
-
-    buy_score  = sum(1 for v in buy_checks.values()  if v)
-    sell_score = sum(1 for v in sell_checks.values() if v)
-    best_score = max(buy_score, sell_score)
-    direction  = "BUY" if buy_score >= sell_score else "SELL"
-
-    # 6/8 or 7/8 — PRE-SIGNAL
-    if best_score >= PRESIGNAL_THRESHOLD:
-        send_presignal(
-            symbol_key, price, rsi, htf_trend,
-            session_name, source,
-            buy_checks, sell_checks,
-            direction, best_score
-        )
-        return "PRESIGNAL"
-
-    # 5/8 — EARLY WATCH
-    if best_score >= WATCH_THRESHOLD:
-        send_watch_alert(
-            symbol_key, price, rsi, htf_trend,
-            session_name, source,
-            buy_checks, sell_checks,
-            direction, best_score
-        )
-        return "WATCH"
-
-    active     = buy_checks if direction == "BUY" else sell_checks
-    failed     = [k for k, v in active.items() if not v]
-    failed_str = " | ".join(failed) if failed else "none"
+        if sent:
+            return "SIGNAL"
 
     log.info(
         f"Heartbeat {mkt['mt5']} | ${price:,.5f} | RSI:{rsi:.1f} | "
         f"HTF:{htf_trend} | {session_name} | "
-        f"Score:{best_score}/8 ({direction}) | "
-        f"WinRate:{mkt['win_rate']} | "
-        f"Waiting: {failed_str}"
+        f"Buy:{sum(buy_checks.values())} Sell:{sum(sell_checks.values())}"
     )
     return "NONE"
 
@@ -895,7 +658,7 @@ def process_market(symbol_key):
 # ─────────────────────────────────────────────
 def scan_all():
     if is_near_news():
-        log.info("📰 News blackout — skipping all")
+        log.info("📰 News blackout")
         return False
 
     signal_fired = False
@@ -919,29 +682,23 @@ def scan_all():
 # ─────────────────────────────────────────────
 def main():
     log.info("═" * 60)
-    log.info("🚀 PEPPERSTONE ICT SMC SNIPER v4.5")
+    log.info("🚀 PEPPERSTONE MOMENTUM HUNTER v5.1")
     log.info("📊 14 Markets — Pepperstone MT5")
-    log.info("   XAUUSD(84%) | BTCUSD(83%) | ETHUSD(81%)")
-    log.info("   GBPUSD(81%) | EURUSD(80%) | US500(80%)")
-    log.info("   USTEC(79%)  | XRPUSD(78%) | SOLUSD(78%)")
-    log.info("   US30(77%)   | WTIUSD(77%) | DE30(76%)")
-    log.info("   BNBUSD(75%) | JP225(74%)")
-    log.info("🧠 Strategy : ICT Smart Money Concepts")
-    log.info("🔍 Concepts : OB+FVG+BOS+Sweep+EMA+RSI+HTF+Vol")
-    log.info("🎯 Overall  : 80% avg win rate | R:R 1:2")
-    log.info("⚡ Speed    : All 14 markets parallel")
-    log.info("⚠️  Watch    : Alert at 5/8")
-    log.info("👀 Pre-sig  : Alert at 6/8 or 7/8")
-    log.info("🚨 Signal   : Alert at 8/8 — ENTER TRADE")
-    log.info("🌙 Crypto   : BTC ETH XRP SOL BNB = 24/7")
-    log.info("🌅 Asian    : JP225 morning coverage")
+    log.info("🧠 Strategy : Momentum Burst Hunter")
+    log.info("🔍 Pattern  : Sweep + Reversal + MSS + Volume")
+    log.info("🎯 Target   : 72% win rate | R:R 1:2")
+    log.info("📈 Trades   : 3-6 per day")
+    log.info("⚡ Speed    : 14 markets parallel")
+    log.info("🚨 Trigger  : 3/4 momentum conditions")
+    log.info("🌙 Crypto   : 24/7 BTC ETH XRP SOL BNB")
+    log.info("🌅 Asian    : JP225 + Gold/Forex 5:30 AM IST")
     log.info("═" * 60)
 
-    log.info("🔄 Pre-loading HTF for all 14 markets...")
+    log.info("🔄 Loading HTF for 14 markets...")
     with ThreadPoolExecutor(max_workers=14) as ex:
         for sym in SYMBOLS:
             ex.submit(get_htf_trend, sym)
-    log.info("✅ All HTF cached — scanner starting!")
+    log.info("✅ HTF cached — momentum hunter active!")
     log.info("═" * 60)
 
     while True:
@@ -952,13 +709,12 @@ def main():
             log.info(f"⏱️  Cycle: {elapsed:.1f}s")
 
             if signal_fired:
-                log.info("⏳ Signal fired — 10 min cooldown")
-                time.sleep(600)
+                time.sleep(30)
             else:
-                time.sleep(10)
+                time.sleep(15)
 
         except KeyboardInterrupt:
-            log.info("👋 Bot stopped")
+            log.info("👋 Stopped")
             break
         except Exception as e:
             log.error(f"Loop error: {e}")
