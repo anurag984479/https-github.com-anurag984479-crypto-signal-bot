@@ -480,6 +480,9 @@ def main():
     log.info("📊 15m HTF + 5m Entry")
     log.info("═" * 60)
 
+# STARTUP TELEGRAM CONFIRMATION
+    send_telegram("🚀 Bot started successfully on Railway")
+    
     while True:
         try:
             log.info("🔄 Running market scan cycle...")
