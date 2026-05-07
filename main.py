@@ -61,7 +61,7 @@ MARKETS = {
         "price_hi": 5500,
         "sessions": [7, 20],
         "decimals": 2,
-        "min_sl": 3.5,
+        "min_sl": 5.0,
         "tier": "⭐⭐⭐⭐⭐ GOLD ELITE",
         "win_rate": "90%"
     },
@@ -73,7 +73,7 @@ MARKETS = {
         "price_hi": 200000,
         "sessions": [0, 23],
         "decimals": 2,
-        "min_sl": 80.0,
+        "min_sl": 120.0,
         "tier": "⭐⭐⭐⭐⭐ BTC ELITE",
         "win_rate": "87%"
     },
@@ -85,7 +85,7 @@ MARKETS = {
         "price_hi": 10000,
         "sessions": [0, 23],
         "decimals": 2,
-        "min_sl": 5.0,
+        "min_sl": 7.0,
         "tier": "⭐⭐⭐⭐ ETH ELITE",
         "win_rate": "84%"
     },
@@ -98,7 +98,7 @@ SYMBOLS = list(MARKETS.keys())
 # STRATEGY SETTINGS
 # ═══════════════════════════════════════════════════════════════
 RR = 2.0
-ATR_MULT = 0.22
+ATR_MULT = 0.35
 VOL_MULT = 1.15
 ADX_THRESHOLD = 20
 CONFIRM_THRESHOLD = 7
