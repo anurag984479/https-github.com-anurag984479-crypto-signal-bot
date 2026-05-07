@@ -87,6 +87,7 @@ HTF_REFRESH = 3600
 
 _signal_sent = {s: 0 for s in SYMBOLS}
 _htf_cache = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
+_active_trades = {}
 
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM ALERTS
@@ -303,19 +304,12 @@ def calc_levels(price, direction, atr, symbol_key, adx):
 # ═══════════════════════════════════════════════════════════════
 # BREAK-EVEN STOP MANAGEMENT
 # ═══════════════════════════════════════════════════════════════
-def break_even_trigger(entry, current_price, sl, direction, sl_dist, symbol_key):
-    decimals = MARKETS[symbol_key]["decimals"]
-
-    # Trigger when price moves 1R in profit
+def break_even_trigger(entry, current_price, direction, sl_dist):
     if direction == "BUY":
-        if current_price >= entry + sl_dist:
-            return round(entry, decimals)
-
+        return current_price >= entry + sl_dist
     elif direction == "SELL":
-        if current_price <= entry - sl_dist:
-            return round(entry, decimals)
-
-    return sl
+        return current_price <= entry - sl_dist
+    return False
 
 # ═══════════════════════════════════════════════════════════════
 # PROCESS MARKET
@@ -325,13 +319,11 @@ def process_symbol(symbol_key):
         return
 
     df = fetch_data(symbol_key)
-
     if df is None or len(df) < 100:
         return
 
     df = add_indicators(df)
     trend = get_htf_trend(symbol_key)
-
     buy_score, sell_score, rsi, price, atr, adx = check_conditions(df, trend)
 
     if adx < ADX_THRESHOLD:
@@ -339,59 +331,101 @@ def process_symbol(symbol_key):
 
     now = time.time()
 
+    # Manage existing trade for break-even alerts only
+    if symbol_key in _active_trades:
+        trade = _active_trades[symbol_key]
+
+        if not trade["be_sent"]:
+            if break_even_trigger(
+                trade["entry"],
+                price,
+                trade["direction"],
+                trade["sl_dist"]
+            ):
+                send_telegram(
+                    f"⚠️ BREAK-EVEN ALERT {symbol_key}
+"
+                    f"Trade Type: {trade['direction']}
+"
+                    f"Entry: {trade['entry']}
+"
+                    f"Current Price: {price}
+"
+                    f"Action: Close manually or secure profit now."
+                )
+                trade["be_sent"] = True
+
+        # Silent cleanup when TP reached
+        if trade["direction"] == "BUY" and price >= trade["tp"]:
+            del _active_trades[symbol_key]
+            return
+        elif trade["direction"] == "SELL" and price <= trade["tp"]:
+            del _active_trades[symbol_key]
+            return
+
     if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
         return
 
-    # BUY
+    # BUY SIGNAL
     if buy_score >= CONFIRM_THRESHOLD:
         sl, tp, sl_dist, rr = calc_levels(price, "BUY", atr, symbol_key, adx)
-        breakeven_sl = break_even_trigger(price, price, sl, "BUY", sl_dist, symbol_key)
-
         send_telegram(
             f"🚀 BUY SIGNAL {symbol_key}
 "
             f"Entry: {price}
-SL: {sl}
-TP: {tp}
 "
-            f"BreakEven Trigger: Move SL to {breakeven_sl} after +1R
+            f"SL: {sl}
+"
+            f"TP: {tp}
 "
             f"RSI: {rsi:.1f}
-ADX: {adx:.1f}
-Trend: {trend}
-RR: 1:{rr}"
+"
+            f"ADX: {adx:.1f}
+"
+            f"Trend: {trend}
+"
+            f"RR: 1:{rr}"
         )
+
+        _active_trades[symbol_key] = {
+            "direction": "BUY",
+            "entry": price,
+            "sl": sl,
+            "tp": tp,
+            "sl_dist": sl_dist,
+            "be_sent": False,
+        }
         _signal_sent[symbol_key] = now
 
-    # SELL
+    # SELL SIGNAL
     elif sell_score >= CONFIRM_THRESHOLD:
         sl, tp, sl_dist, rr = calc_levels(price, "SELL", atr, symbol_key, adx)
-        breakeven_sl = break_even_trigger(price, price, sl, "SELL", sl_dist, symbol_key)
-
         send_telegram(
             f"🔻 SELL SIGNAL {symbol_key}
 "
             f"Entry: {price}
-SL: {sl}
-TP: {tp}
 "
-            f"BreakEven Trigger: Move SL to {breakeven_sl} after +1R
+            f"SL: {sl}
+"
+            f"TP: {tp}
 "
             f"RSI: {rsi:.1f}
-ADX: {adx:.1f}
-Trend: {trend}
-RR: 1:{rr}"
+"
+            f"ADX: {adx:.1f}
+"
+            f"Trend: {trend}
+"
+            f"RR: 1:{rr}"
         )
-        _signal_sent[symbol_key] = now
 
-    # SELL
-    elif sell_score >= CONFIRM_THRESHOLD:
-        sl, tp, sl_dist, rr = calc_levels(price, "SELL", atr, symbol_key, adx)
-        send_telegram(
-            f"🔻 SELL SIGNAL {symbol_key}\n"
-            f"Entry: {price}\nSL: {sl}\nTP: {tp}\n"
-            f"RSI: {rsi:.1f}\nADX: {adx:.1f}\nTrend: {trend}\nRR: 1:{rr}"
-        )
+        _active_trades[symbol_key] = {
+            "direction": "SELL",
+            "entry": price,
+            "sl": sl,
+            "tp": tp,
+            "sl_dist": sl_dist,
+            "be_sent": False,
+        }
         _signal_sent[symbol_key] = now
 
 # ═══════════════════════════════════════════════════════════════
@@ -428,3 +462,15 @@ if __name__ == "__main__":
     main()
 ```
 
+## Next recommended upgrades
+
+* MT5/Pepperstone direct broker API
+* ForexFactory news filter
+* Websocket live feeds
+* Trade execution module
+* Position sizing by equity %
+* Trailing stop manager
+* Database journaling
+* VPS deployment
+
+    
