@@ -1,66 +1,36 @@
 import time
 import logging
 import requests
-import ccxt
+import os
 import pandas as pd
 import ta
-import os
-from datetime import datetime, timezone
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE INSTITUTIONAL FRAMEWORK v14.0 — GLOBAL ADAPTIVE
-# Strategy: 15m sniper + 1h/4h bias
-# Features: Liquidity sweeps, Order Blocks, FVG, Killzones
-# SL      : Dynamic ATR × 2 (min SL per symbol)
-# Target  : Fixed 1:2 R:R
-# Trades  : 2–6 per day (lower frequency, higher confluence)
+# PEPPERSTONE INSTITUTIONAL FRAMEWORK v14.0 — Adaptive Engine
+# Features: Structural SLs, Breakeven Alerts, Killzones
+# SL      : Liquidity sweep lows/highs or Order Block boundaries
+# Target  : Fixed 1:3 R:R
+# Alerts  : Breakeven trigger only when SL tightened
 # ═══════════════════════════════════════════════════════════════
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(message)s",
-    handlers=[logging.StreamHandler()]
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("v14.0")
 
+# Telegram credentials
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
-DOLLAR_PER_LOT = {
-    "XAU/USD": 100.0,
-    "BTC/USD": 1.0,
-    "GBP/USD": 100000.0,
-    "ETH/USD": 1.0,
-    "US500":   10.0,
-}
-
+# Market definitions
 MARKETS = {
-    "XAU/USD": {"mt5":"XAUUSD.Qraw","yf":"GC=F","min_sl":25.0,"sessions":[7,20],"decimals":2},
-    "BTC/USD": {"mt5":"BTCUSD.Qraw","yf":None,"min_sl":500.0,"sessions":[0,23],"decimals":2},
-    "GBP/USD": {"mt5":"GBPUSD.Qraw","yf":"GBPUSD=X","min_sl":0.0030,"sessions":[7,20],"decimals":5},
-    "ETH/USD": {"mt5":"ETHUSD.Qraw","yf":None,"min_sl":25.0,"sessions":[0,23],"decimals":2},
-    "US500":   {"mt5":"US500.Qraw","yf":"^GSPC","min_sl":20.0,"sessions":[13,21],"decimals":2},
+    "XAUUSD": {"yf":"GC=F","min_sl":25.0,"sessions":[7,20],"decimals":2},
+    "BTCUSD": {"yf":"BTC-USD","min_sl":500.0,"sessions":[0,23],"decimals":2},
+    "GBPUSD": {"yf":"GBPUSD=X","min_sl":0.0030,"sessions":[7,20],"decimals":5},
+    "ETHUSD": {"yf":"ETH-USD","min_sl":25.0,"sessions":[0,23],"decimals":2},
+    "US500":  {"yf":"^GSPC","min_sl":20.0,"sessions":[13,21],"decimals":2},
 }
 
-SYMBOLS           = list(MARKETS.keys())
-RSI_OB            = 65
-RSI_OS            = 35
-VOL_MULT          = 1.2
-RR                = 2
-SIGNAL_COOLDOWN   = 1800
-CONFIRM_THRESHOLD = 3
-PRESIG_COOLDOWN   = 600
-ADX_THRESHOLD     = 22
-HTF_REFRESH       = 3600
-ATR_MULT          = 2.0
-
-_signal_sent = {s: 0 for s in SYMBOLS}
-_presig_sent = {s: 0 for s in SYMBOLS}
-_htf_cache   = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
-
-# TELEGRAM
+# Telegram sender
 def send_telegram(msg):
     try:
         r = requests.post(
@@ -73,87 +43,27 @@ def send_telegram(msg):
     except Exception as e:
         log.error(f"Telegram error: {e}")
 
-# LOT SIZE
-def lot_table(price, sl, symbol_key):
-    sl_dist = abs(price - sl)
-    if sl_dist == 0: return "N/A"
-    dpl   = DOLLAR_PER_LOT.get(symbol_key, 1.0)
-    lines = []
-    for risk in [10, 25, 50, 100, 200]:
-        lot = round(risk / (sl_dist * dpl), 3)
-        if lot < 0.01: lot = 0.01
-        lines.append(f"  💵 ${risk:>3} risk → {lot:.3f} lots")
-    return "\n".join(lines)
+# Fetch data
+def fetch_yf(ticker, period="15d", interval="15m"):
+    df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
+    if df.empty: return None
+    df.columns = [c.lower() for c in df.columns]
+    return df[["open","high","low","close","volume"]].reset_index(drop=True)
 
-def lot_for_risk(price, sl, symbol_key, risk_usd):
-    sl_dist = abs(price - sl)
-    if sl_dist == 0: return 0.01
-    dpl = DOLLAR_PER_LOT.get(symbol_key, 1.0)
-    return max(round(risk_usd / (sl_dist * dpl), 3), 0.01)
-
-# SESSION
-def in_session(symbol_key):
-    h    = datetime.now(timezone.utc).hour
-    s, e = MARKETS[symbol_key]["sessions"]
-    if not (s <= h < e): return False, "Closed"
-    if 12 <= h < 16: return True, "NY+London 🔥🔥"
-    if 7  <= h < 12: return True, "London 🔥"
-    if h  < 7:       return True, "Asian"
-    return True, "New York 🇺🇸"
-
-# DATA FETCH
-def fetch_yf(ticker, period, interval):
-    raw = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
-    if raw.empty: return None
-    raw.columns = [c.lower() for c in raw.columns]
-    return raw[["open","high","low","close","volume"]].reset_index(drop=True)
-
-def get_15m(symbol_key):
-    yf_sym = MARKETS[symbol_key]["yf"]
-    if yf_sym: return fetch_yf(yf_sym,"15d","15m"), "yf"
-    return None, None
-
-def get_htf(symbol_key, tf="1h"):
-    yf_sym = MARKETS[symbol_key]["yf"]
-    if yf_sym: return fetch_yf(yf_sym,"60d",tf)
-    return None
-
-# HTF TREND (1h + 4h EMA50/200)
-def get_trend(symbol_key):
-    cache = _htf_cache[symbol_key]
-    now   = time.time()
-    if now - cache["ts"] > HTF_REFRESH:
-        df1 = get_htf(symbol_key,"1h")
-        df4 = get_htf(symbol_key,"4h")
-        if df1 is not None and len(df1)>200 and df4 is not None and len(df4)>200:
-            cl1 = pd.to_numeric(df1["close"])
-            cl4 = pd.to_numeric(df4["close"])
-            e50_1 = ta.trend.EMAIndicator(cl1,50).ema_indicator().iloc[-1]
-            e200_1= ta.trend.EMAIndicator(cl1,200).ema_indicator().iloc[-1]
-            e50_4 = ta.trend.EMAIndicator(cl4,50).ema_indicator().iloc[-1]
-            e200_4= ta.trend.EMAIndicator(cl4,200).ema_indicator().iloc[-1]
-            if e50_1>e200_1 and e50_4>e200_4: cache["trend"]="BULL"
-            elif e50_1<e200_1 and e50_4<e200_4: cache["trend"]="BEAR"
-            else: cache["trend"]="NEUTRAL"
-        cache["ts"]=now
-        log.info(f"HTF {MARKETS[symbol_key]['mt5']}: {cache['trend']}")
-    return cache["trend"]
-
-# INDICATORS + Institutional Filters
+# Indicators
 def add_ind(df):
-    cl   = pd.to_numeric(df["close"])
-    hi   = pd.to_numeric(df["high"])
-    lo   = pd.to_numeric(df["low"])
-    vol  = pd.to_numeric(df["volume"])
+    cl = pd.to_numeric(df["close"])
+    hi = pd.to_numeric(df["high"])
+    lo = pd.to_numeric(df["low"])
     df["rsi"]   = ta.momentum.RSIIndicator(cl,14).rsi()
     df["ema9"]  = ta.trend.EMAIndicator(cl,9).ema_indicator()
     df["ema21"] = ta.trend.EMAIndicator(cl,21).ema_indicator()
     df["ema50"] = ta.trend.EMAIndicator(cl,50).ema_indicator()
     df["atr"]   = ta.volatility.AverageTrueRange(hi,lo,cl,14).average_true_range()
     df["adx"]   = ta.trend.ADXIndicator(hi,lo,cl,14).adx()
-    df["volma"] = vol.rolling(20).mean()
     return df
 
+# Institutional filters
 def detect_liquidity_sweep(df): 
     return df["low"].iloc[-1]<df["low"].iloc[-5:].min() or df["high"].iloc[-1]>df["high"].iloc[-5:].max()
 
@@ -164,4 +74,92 @@ def detect_fvg(df):
     return abs(df["close"].iloc[-1]-df["open"].iloc[-1])>df["atr"].iloc[-1]
 
 def detect_big_bar(df): 
-    return (df["high"].iloc[-1]-df["low"].iloc[-1])
+    return (df["high"].iloc[-1]-df["low"].iloc[-1])>df["atr"].iloc[-1]*1.5
+
+# Strategy check
+def check_conditions(df, htf_bias):
+    rsi   = df["rsi"].iloc[-1]
+    ema9  = df["ema9"].iloc[-1]
+    ema21 = df["ema21"].iloc[-1]
+    ema50 = df["ema50"].iloc[-1]
+    adx   = df["adx"].iloc[-1]
+    price = df["close"].iloc[-1]
+
+    conds = []
+    if rsi>65: conds.append("RSI overbought")
+    if rsi<35: conds.append("RSI oversold")
+    if ema9>ema21: conds.append("EMA9 above EMA21")
+    if ema9<ema21: conds.append("EMA9 below EMA21")
+    if price>ema50: conds.append("Price above EMA50")
+    if price<ema50: conds.append("Price below EMA50")
+    if adx>22: conds.append("ADX trending")
+    if detect_liquidity_sweep(df): conds.append("Liquidity sweep")
+    if detect_order_block(df): conds.append("Order block")
+    if detect_fvg(df): conds.append("FVG")
+    if detect_big_bar(df): conds.append("Big-bar momentum")
+
+    score = len(conds)
+    return conds, score, htf_bias
+
+# Levels calc (structural SL + fixed 1:3 R:R)
+def calc_levels(price, atr, direction, min_sl, df):
+    if direction=="BUY":
+        sl = min(df["low"].iloc[-5:]) - 0.5*atr
+        tp = price + (price-sl)*3
+    else:
+        sl = max(df["high"].iloc[-5:]) + 0.5*atr
+        tp = price - (sl-price)*3
+    sl_dist = abs(price-sl)
+    if sl_dist<min_sl: sl_dist=min_sl
+    return sl, tp, sl_dist
+
+# Breakeven alert
+def breakeven_alert(sym, entry, sl, tp, price, decimals):
+    msg = f"""
+⚠️ Breakeven Trigger — {sym}
+──────────────────────────────
+Trade has tightened to breakeven.
+📍 Entry: {entry:.{decimals}f}
+🛑 SL moved to: {sl:.{decimals}f} (breakeven)
+🎯 TP remains: {tp:.{decimals}f} (1:3 target)
+
+👉 Action: Hold for TP or exit manually.
+"""
+    send_telegram(msg)
+
+# Main loop (simplified)
+def run_bot():
+    for sym, info in MARKETS.items():
+        df = fetch_yf(info["yf"])
+        if df is None or len(df)<50: continue
+        df = add_ind(df)
+        htf_bias = "BULL" if df["ema50"].iloc[-1]>df["ema21"].iloc[-1] else "BEAR"
+        conds, score, bias = check_conditions(df, htf_bias)
+        price = df["close"].iloc[-1]
+        atr   = df["atr"].iloc[-1]
+        direction = "BUY" if "RSI oversold" in conds or "EMA9 above EMA21" in conds else "SELL"
+        sl,tp,sl_dist = calc_levels(price, atr, direction, info["min_sl"], df)
+
+        if score>=3:
+            msg = f"""
+🚀 *SIGNAL — {sym}* 🚀
+🔥 *Action:* {direction}
+⭐ *Score:* {score}/10 + HTF {bias}
+💹 *Price:* {price:.{info['decimals']}f}
+🛑 *Stop Loss:* {sl:.{info['decimals']}f}
+🎯 *Take Profit:* {tp:.{info['decimals']}f}
+⚖️ *R:R:* 1:3
+
+*✅ Confirmed:*
+{chr(10).join(['  ✅ '+c for c in conds])}
+"""
+            send_telegram(msg)
+
+            # Breakeven check
+            if direction=="BUY" and price>=sl_dist+price:
+                breakeven_alert(sym, price, price, tp, price, info["decimals"])
+            elif direction=="SELL" and price<=price-sl_dist:
+                breakeven_alert(sym, price, price, tp, price, info["decimals"])
+
+if __name__=="__main__":
+    run_bot()
