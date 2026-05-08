@@ -78,7 +78,7 @@ MARKETS = {
         "price_hi": 100,
         "sessions": [7, 20],
         "decimals": 3,
-        "min_sl": 0.12,
+        "min_sl": 0.25,
         "tier": "⭐⭐⭐⭐⭐ SILVER ELITE",
         "win_rate": "88%"
     },
@@ -380,7 +380,7 @@ def calc_levels(price, direction, atr, symbol_key, df):
     decimals = MARKETS[symbol_key]["decimals"]
 
     atr_sl = float(atr) * ATR_MULT
-    recent = df.tail(4)
+    recent = df.tail(8)
 
     if direction == "BUY":
         swing = price - recent["low"].min()
@@ -388,7 +388,7 @@ def calc_levels(price, direction, atr, symbol_key, df):
         swing = recent["high"].max() - price
 
     sl_dist = max(min_sl, min(atr_sl, swing))
-    sl_dist *= 0.95
+    
 
     if direction == "BUY":
         sl = price - sl_dist
