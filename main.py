@@ -116,7 +116,7 @@ MARKETS = {
     "min_sl": 20.0,
     "tier": "⭐⭐⭐⭐⭐ US500 ELITE",
     "win_rate": "87%"
-},
+   },
 }
 
 SYMBOLS = list(MARKETS.keys())
@@ -128,7 +128,7 @@ SYMBOLS = list(MARKETS.keys())
 RR = 2.0
 ATR_MULT = 0.28
 VOL_MULT = 1.15
-ADX_THRESHOLD = 20
+ADX_THRESHOLD = 22
 CONFIRM_THRESHOLD = 6
 SIGNAL_COOLDOWN = 1200
 HTF_REFRESH = 1800
@@ -447,6 +447,10 @@ def process(symbol_key):
 
     best = max(buy_score, sell_score)
     log.info(f"{symbol_key} | Buy Score: {buy_score} | Sell Score: {sell_score} | Best: {best}")
+
+    if adx < ADX_THRESHOLD:
+        log.info(f"❌ {symbol_key} rejected due to weak ADX: {adx:.1f}")
+        return
 
     if best < CONFIRM_THRESHOLD:
         return
