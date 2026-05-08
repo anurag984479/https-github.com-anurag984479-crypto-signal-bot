@@ -61,7 +61,7 @@ DOLLAR_PER_LOT = {
 MARKETS = {
     "XAU/USD": {
         "mt5": "XAUUSD.Qraw",
-        "yf": "XAUUSD=X",
+        "yf": "GC=F",
         "price_lo": 4000,
         "price_hi": 5500,
         "sessions": [7, 20],
@@ -73,19 +73,19 @@ MARKETS = {
 
     "XAG/USD": {
         "mt5": "XAGUSD.Qraw",
-        "yf": "XAGUSD=X",
+        "yf": "SI=F",
         "price_lo": 20,
         "price_hi": 100,
         "sessions": [7, 20],
         "decimals": 3,
-        "min_sl": 0.25,
+        "min_sl": 0.12,
         "tier": "⭐⭐⭐⭐⭐ SILVER ELITE",
         "win_rate": "88%"
     },
 
     "BTC/USD": {
         "mt5": "BTCUSD.Qraw",
-        "yf": "BTC-USD",
+        "yf": None,
         "price_lo": 50000,
         "price_hi": 200000,
         "sessions": [0, 23],
@@ -387,7 +387,8 @@ def calc_levels(price, direction, atr, symbol_key, df):
     else:
         swing = recent["high"].max() - price
 
-    sl_dist = max(min_sl, atr_sl)
+    sl_dist = max(min_sl, min(atr_sl, swing))
+    sl_dist *= 0.95
 
     if direction == "BUY":
         sl = price - sl_dist
