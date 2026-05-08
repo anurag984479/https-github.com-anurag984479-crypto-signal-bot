@@ -380,7 +380,7 @@ def calc_levels(price, direction, atr, symbol_key, df):
     decimals = MARKETS[symbol_key]["decimals"]
 
     atr_sl = float(atr) * ATR_MULT
-    recent = df.tail(8)
+    recent = df.tail(6)
 
     if direction == "BUY":
         swing = price - recent["low"].min()
