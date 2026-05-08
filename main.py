@@ -114,7 +114,7 @@ SYMBOLS = list(MARKETS.keys())
 # STRATEGY SETTINGS
 # ═══════════════════════════════════════════════════════════════
 RR = 2.0
-ATR_MULT = 0.22
+ATR_MULT = 0.28
 VOL_MULT = 1.15
 ADX_THRESHOLD = 20
 CONFIRM_THRESHOLD = 7
