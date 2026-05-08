@@ -1,10 +1,13 @@
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE MOMENTUM HUNTER v13.1 — A+ SETUP FILTER ONLY
+# PEPPERSTONE MOMENTUM HUNTER v14.0 — ELITE 4 MARKET EDITION
 # 15m HTF Bias + 5m Entry
-# ICT / SMC Style
-# Strict premium setups only
-# Gold / BTC / ETH optimized
-# Railway-ready + secure Telegram env vars + enhanced logging
+# Markets:
+# 🥇 Gold (XAU/USD)
+# 🥈 Silver (XAG/USD)
+# 🥉 BTC/USD
+# 🏅 NAS100
+# Strict premium A+ setups only
+# Railway-ready + Telegram + enhanced logging
 # ═══════════════════════════════════════════════════════════════
 
 import time
@@ -27,14 +30,14 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v13.1")
+log = logging.getLogger("v14.0")
 
 
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM
 # ═══════════════════════════════════════════════════════════════
-TOKEN = os.getenv("TOKEN", "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
-CHAT_ID = os.getenv("CHAT_ID", "8783763018")
+TOKEN = os.getenv("TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 if not TOKEN or not CHAT_ID:
     raise ValueError("Missing TOKEN or CHAT_ID environment variables")
@@ -45,8 +48,9 @@ if not TOKEN or not CHAT_ID:
 # ═══════════════════════════════════════════════════════════════
 DOLLAR_PER_LOT = {
     "XAU/USD": 100.0,
+    "XAG/USD": 500.0,
     "BTC/USD": 1.0,
-    "ETH/USD": 1.0,
+    "NAS100": 10.0,
 }
 
 
@@ -66,6 +70,18 @@ MARKETS = {
         "win_rate": "90%"
     },
 
+    "XAG/USD": {
+        "mt5": "XAGUSD.Qraw",
+        "yf": "SI=F",
+        "price_lo": 20,
+        "price_hi": 100,
+        "sessions": [7, 20],
+        "decimals": 3,
+        "min_sl": 0.12,
+        "tier": "⭐⭐⭐⭐⭐ SILVER ELITE",
+        "win_rate": "88%"
+    },
+
     "BTC/USD": {
         "mt5": "BTCUSD.Qraw",
         "yf": None,
@@ -78,16 +94,16 @@ MARKETS = {
         "win_rate": "87%"
     },
 
-    "ETH/USD": {
-        "mt5": "ETHUSD.Qraw",
-        "yf": None,
-        "price_lo": 1000,
-        "price_hi": 10000,
-        "sessions": [0, 23],
-        "decimals": 2,
-        "min_sl": 7.0,
-        "tier": "⭐⭐⭐⭐ ETH ELITE",
-        "win_rate": "84%"
+    "NAS100": {
+        "mt5": "NAS100",
+        "yf": "^NDX",
+        "price_lo": 10000,
+        "price_hi": 50000,
+        "sessions": [13, 21],
+        "decimals": 1,
+        "min_sl": 45.0,
+        "tier": "⭐⭐⭐⭐⭐ NAS100 ELITE",
+        "win_rate": "86%"
     },
 }
 
@@ -127,7 +143,6 @@ def send_telegram(msg):
             },
             timeout=10
         )
-
         log.info(f"✅ Telegram sent | Response: {r.text}")
 
     except Exception as e:
@@ -197,11 +212,9 @@ def fetch_ccxt(src_name, sym, tf="5m", limit=300):
 
 
 def get_entry_data(symbol_key):
-    if symbol_key in ["BTC/USD", "ETH/USD"]:
-        sym = symbol_key.replace("/USD", "")
-
+    if symbol_key == "BTC/USD":
         for src in ["coinbase", "binance"]:
-            pair = f"{sym}/USDT" if src == "binance" else f"{sym}/USD"
+            pair = "BTC/USDT" if src == "binance" else "BTC/USD"
 
             df = fetch_ccxt(src, pair)
 
@@ -442,11 +455,11 @@ def process(symbol_key):
     mt5 = MARKETS[symbol_key]["mt5"]
     dec = MARKETS[symbol_key]["decimals"]
 
-    msg = f"""
+    msg = f'''
 🚀 *A+ SIGNAL — {mt5}* 🚀
-_{MARKETS[symbol_key]['tier']}_
+_{MARKETS[symbol_key]["tier"]}_
 
-🔥 *Action:* {'BUY 📈' if direction == 'BUY' else 'SELL 📉'}
+🔥 *Action:* {"BUY 📈" if direction == "BUY" else "SELL 📉"}
 ⭐ *Score:* {best}/8
 
 📍 *Entry:* ${price:,.{dec}f}
@@ -462,7 +475,7 @@ _{MARKETS[symbol_key]['tier']}_
 💵 *$50 Risk Lot:* {lot:.3f}
 
 ✅ *A+ Conditions:*
-""" + "\n".join(
+''' + "\n".join(
         [f" ✅ {k}" for k, v in checks.items() if v]
     ) + "\n\n⚡ *STRICT ELITE SETUP ONLY*"
 
@@ -475,19 +488,19 @@ _{MARKETS[symbol_key]['tier']}_
 # ═══════════════════════════════════════════════════════════════
 def main():
     log.info("═" * 60)
-    log.info("🚀 MOMENTUM HUNTER v13.1 STARTED")
+    log.info("🚀 MOMENTUM HUNTER v14.0 STARTED")
     log.info("🎯 A+ FILTER ONLY | STRICT ELITE MODE")
     log.info("📊 15m HTF + 5m Entry")
+    log.info("🥇 Gold | 🥈 Silver | 🥉 BTC | 🏅 NAS100")
     log.info("═" * 60)
 
-# STARTUP TELEGRAM CONFIRMATION
     send_telegram("🚀 Bot started successfully on Railway")
-    
+
     while True:
         try:
             log.info("🔄 Running market scan cycle...")
 
-            with ThreadPoolExecutor(max_workers=3) as ex:
+            with ThreadPoolExecutor(max_workers=4) as ex:
                 futures = [ex.submit(process, s) for s in SYMBOLS]
 
                 for f in as_completed(futures):
