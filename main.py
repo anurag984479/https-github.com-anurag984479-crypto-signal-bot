@@ -48,9 +48,10 @@ if not TOKEN or not CHAT_ID:
 # ═══════════════════════════════════════════════════════════════
 DOLLAR_PER_LOT = {
     "XAU/USD": 100.0,
-    "XAG/USD": 500.0,
+    "XAG/USD": 5000.0,
     "BTC/USD": 1.0,
     "NAS100": 10.0,
+    "US500": 10.0,
 }
 
 
@@ -105,6 +106,17 @@ MARKETS = {
         "tier": "⭐⭐⭐⭐⭐ NAS100 ELITE",
         "win_rate": "86%"
     },
+    "US500": {
+    "mt5": "US500.Qtek",
+    "yf": "^GSPC",
+    "price_lo": 3000,
+    "price_hi": 7000,
+    "sessions": [13, 21],
+    "decimals": 2,
+    "min_sl": 20.0,
+    "tier": "⭐⭐⭐⭐⭐ US500 ELITE",
+    "win_rate": "87%"
+},
 }
 
 SYMBOLS = list(MARKETS.keys())
@@ -492,7 +504,7 @@ def main():
     log.info("🚀 MOMENTUM HUNTER v14.0 STARTED")
     log.info("🎯 A+ FILTER ONLY | STRICT ELITE MODE")
     log.info("📊 15m HTF + 5m Entry")
-    log.info("🥇 Gold | 🥈 Silver | 🥉 BTC | 🏅 NAS100")
+    log.info("🥇 Gold | 🥈 Silver | 🥉 BTC | 🏅 NAS100 | 🇺🇸 US500")
     log.info("═" * 60)
 
     send_telegram("🚀 Bot started successfully on Railway")
@@ -501,7 +513,7 @@ def main():
         try:
             log.info("🔄 Running market scan cycle...")
 
-            with ThreadPoolExecutor(max_workers=4) as ex:
+            with ThreadPoolExecutor(max_workers=5) as ex:
                 futures = [ex.submit(process, s) for s in SYMBOLS]
 
                 for f in as_completed(futures):
