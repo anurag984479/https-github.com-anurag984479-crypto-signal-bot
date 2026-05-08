@@ -36,8 +36,8 @@ log = logging.getLogger("v14.0")
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM
 # ═══════════════════════════════════════════════════════════════
-TOKEN = os.getenv("TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+TOKEN = os.getenv("TOKEN", "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
+CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
 if not TOKEN or not CHAT_ID:
     raise ValueError("Missing TOKEN or CHAT_ID environment variables")
