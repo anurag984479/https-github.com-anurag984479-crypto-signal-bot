@@ -1,10 +1,10 @@
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE MOMENTUM HUNTER v13.0 — A+ SETUP FILTER ONLY
+# PEPPERSTONE MOMENTUM HUNTER v13.1 — A+ SETUP FILTER ONLY
 # 15m HTF Bias + 5m Entry
 # ICT / SMC Style
 # Strict premium setups only
-# Designed for 80–90% hit quality
 # Gold / BTC / ETH optimized
+# Railway-ready + secure Telegram env vars + enhanced logging
 # ═══════════════════════════════════════════════════════════════
 
 import time
@@ -27,7 +27,7 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v13.0")
+log = logging.getLogger("v13.1")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -35,6 +35,10 @@ log = logging.getLogger("v13.0")
 # ═══════════════════════════════════════════════════════════════
 TOKEN = os.getenv("TOKEN", "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
+
+if not TOKEN or not CHAT_ID:
+    raise ValueError("Missing TOKEN or CHAT_ID environment variables")
+
 
 # ═══════════════════════════════════════════════════════════════
 # RISK CONFIG
@@ -97,7 +101,7 @@ RR = 2.0
 ATR_MULT = 0.22
 VOL_MULT = 1.15
 ADX_THRESHOLD = 20
-CONFIRM_THRESHOLD = 7      # A+ only
+CONFIRM_THRESHOLD = 7
 SIGNAL_COOLDOWN = 1800
 HTF_REFRESH = 1800
 
@@ -114,7 +118,7 @@ _htf_cache = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
 # ═══════════════════════════════════════════════════════════════
 def send_telegram(msg):
     try:
-        requests.post(
+        r = requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             json={
                 "chat_id": CHAT_ID,
@@ -123,7 +127,8 @@ def send_telegram(msg):
             },
             timeout=10
         )
-        log.info("✅ Telegram sent")
+
+        log.info(f"✅ Telegram sent | Response: {r.text}")
 
     except Exception as e:
         log.error(f"Telegram error: {e}")
@@ -149,7 +154,7 @@ def in_session(symbol_key):
 
 
 # ═══════════════════════════════════════════════════════════════
-# DATA
+# DATA FETCH
 # ═══════════════════════════════════════════════════════════════
 def fetch_yf(ticker, period="15d", interval="5m"):
     try:
@@ -171,7 +176,8 @@ def fetch_yf(ticker, period="15d", interval="5m"):
 
         return raw[["open", "high", "low", "close", "volume"]].reset_index(drop=True)
 
-    except:
+    except Exception as e:
+        log.error(f"YF fetch error: {e}")
         return None
 
 
@@ -185,7 +191,8 @@ def fetch_ccxt(src_name, sym, tf="5m", limit=300):
             columns=["time", "open", "high", "low", "close", "volume"]
         )
 
-    except:
+    except Exception as e:
+        log.error(f"CCXT fetch error ({src_name} {sym}): {e}")
         return None
 
 
@@ -271,10 +278,8 @@ def get_trend(symbol_key):
 
     if last["ema21"] > last["ema50"]:
         trend = "BULL"
-
     elif last["ema21"] < last["ema50"]:
         trend = "BEAR"
-
     else:
         trend = "NEUTRAL"
 
@@ -285,7 +290,7 @@ def get_trend(symbol_key):
 
 
 # ═══════════════════════════════════════════════════════════════
-# A+ SETUP FILTER
+# CONDITIONS
 # ═══════════════════════════════════════════════════════════════
 def check_conditions(df, trend):
     last = df.iloc[-1]
@@ -311,7 +316,6 @@ def check_conditions(df, trend):
     strong_body = body_pct > 0.60
     vol_ok = volma > 0 and vol > volma * VOL_MULT
 
-    # BOS / Displacement proxy
     bullish_break = close > df.iloc[-2]["high"]
     bearish_break = close < df.iloc[-2]["low"]
 
@@ -355,7 +359,6 @@ def calc_levels(price, direction, atr, symbol_key, df):
 
     if direction == "BUY":
         swing = price - recent["low"].min()
-
     else:
         swing = recent["high"].max() - price
 
@@ -365,7 +368,6 @@ def calc_levels(price, direction, atr, symbol_key, df):
     if direction == "BUY":
         sl = price - sl_dist
         tp = price + sl_dist * RR
-
     else:
         sl = price + sl_dist
         tp = price - sl_dist * RR
@@ -394,6 +396,8 @@ def lot_for_risk(price, sl, symbol_key, risk=50):
 # PROCESS
 # ═══════════════════════════════════════════════════════════════
 def process(symbol_key):
+    log.info(f"🔍 Scanning {symbol_key}")
+
     ok, session = in_session(symbol_key)
 
     if not ok:
@@ -405,7 +409,6 @@ def process(symbol_key):
         return
 
     df = add_ind(df)
-
     price = float(df.iloc[-1]["close"])
 
     if not (
@@ -419,13 +422,13 @@ def process(symbol_key):
 
     best = max(buy_score, sell_score)
 
-    # STRICT A+ ONLY
     if best < CONFIRM_THRESHOLD:
         return
 
     now = time.time()
 
     if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
+        log.info(f"⏳ {symbol_key} cooldown active")
         return
 
     direction = "BUY" if buy_score > sell_score else "SELL"
@@ -472,19 +475,22 @@ _{MARKETS[symbol_key]['tier']}_
 # ═══════════════════════════════════════════════════════════════
 def main():
     log.info("═" * 60)
-    log.info("🚀 MOMENTUM HUNTER v13.0 STARTED")
+    log.info("🚀 MOMENTUM HUNTER v13.1 STARTED")
     log.info("🎯 A+ FILTER ONLY | STRICT ELITE MODE")
     log.info("📊 15m HTF + 5m Entry")
     log.info("═" * 60)
 
     while True:
         try:
+            log.info("🔄 Running market scan cycle...")
+
             with ThreadPoolExecutor(max_workers=3) as ex:
                 futures = [ex.submit(process, s) for s in SYMBOLS]
 
                 for f in as_completed(futures):
                     pass
 
+            log.info("⏱ Waiting 20s for next cycle...")
             time.sleep(20)
 
         except Exception as e:
