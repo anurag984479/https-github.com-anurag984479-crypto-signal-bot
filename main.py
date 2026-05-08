@@ -434,6 +434,7 @@ def process(symbol_key):
     buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(df, trend)
 
     best = max(buy_score, sell_score)
+    log.info(f"{symbol_key} | Buy Score: {buy_score} | Sell Score: {sell_score} | Best: {best}")
 
     if best < CONFIRM_THRESHOLD:
         return
