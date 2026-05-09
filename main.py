@@ -122,7 +122,7 @@ SYMBOLS = list(MARKETS.keys())
 # STRATEGY SETTINGS
 # ═══════════════════════════════════════════════════════════════
 RR = 2.5
-ATR_MULT = 0.28
+ATR_MULT = 0.40
 VOL_MULT = 1.20
 ADX_THRESHOLD = 22
 CONFIRM_THRESHOLD = 7
@@ -333,8 +333,8 @@ def check_conditions(df, trend, symbol_key):
     strong_body = body_pct > 0.60
     vol_ok = volma > 0 and vol > volma * VOL_MULT
 
-    bullish_break = close > df.iloc[-2]["high"] + atr * 0.15
-    bearish_break = close < df.iloc[-2]["low"] - atr * 0.15
+    bullish_break = close > df.iloc[-2]["high"] + atr * 0.25
+    bearish_break = close < df.iloc[-2]["low"] - atr * 0.25   
 
     support, resistance = get_sr_levels(df)
 
@@ -343,6 +343,24 @@ def check_conditions(df, trend, symbol_key):
     sr_buy_ok = close < resistance * (1 - buffer)
     sr_sell_ok = close > support * (1 + buffer)
 
+    prev = df.iloc[-2]
+
+    tcr_buy = (
+        trend == "BULL"
+        and ema9 > ema21 > ema50
+        and prev["low"] <= ema21
+        and close > ema9
+        and rsi > 55
+    )
+
+    tcr_sell = (
+        trend == "BEAR"
+        and ema9 < ema21 < ema50
+        and prev["high"] >= ema21
+        and close < ema9
+        and rsi < 45
+    )
+    
     buy = {
         "HTF Bull": trend == "BULL",
         "EMA Alignment": ema9 > ema21 > ema50,
@@ -353,6 +371,7 @@ def check_conditions(df, trend, symbol_key):
         "BOS": bullish_break,
         "Support/Resistance": sr_buy_ok,
         "ADX": adx > ADX_THRESHOLD,
+        "TCR": tcr_buy,  
     }
 
     sell = {
@@ -365,6 +384,7 @@ def check_conditions(df, trend, symbol_key):
         "BOS": bearish_break,
         "Support/Resistance": sr_sell_ok,
         "ADX": adx > ADX_THRESHOLD,
+        "TCR": tcr_sell,
     }
 
     buy_score = sum(buy.values())
@@ -504,7 +524,7 @@ def process(symbol_key):
 _{MARKETS[symbol_key]["tier"]}_
 
 🔥 *Action:* {"BUY 📈" if direction == "BUY" else "SELL 📉"}
-⭐ *Score:* {best}/9
+⭐ *Score:* {best}/10
 
 📍 *Entry:* ${price:,.{dec}f}
 🛑 *SL:* ${sl:,.{dec}f}
