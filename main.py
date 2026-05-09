@@ -216,7 +216,9 @@ def fetch_ccxt(src_name, sym, tf="5m", limit=300):
 
 def get_entry_data(symbol_key):
     if symbol_key == "BTC/USD":
-        for src, pair in [("okx", "BTC/USDT"), ("kucoin", "BTC/USDT")]:
+        for src in ["coinbase", "binance"]:
+            pair = "BTC/USDT" if src == "binance" else "BTC/USD"
+
             df = fetch_ccxt(src, pair)
 
             if df is not None and len(df) > 100:
@@ -275,7 +277,7 @@ def add_ind(df):
     return df
 
 # ═══════════════════════════════════════════════════════════════
-# HTF TREND
+# HTF TREND — Code 2 feed (yfinance only, no CCXT geo-blocked calls)
 # ═══════════════════════════════════════════════════════════════
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
@@ -284,66 +286,25 @@ def get_trend(symbol_key):
     if now - cache["ts"] < HTF_REFRESH:
         return cache["trend"]
 
-    tf_map = {
-        "daily": ("60d", "1d"),
-        "h4": ("60d", "60m"),
-    }
+    df = get_htf(symbol_key)
 
-    trends = {}
+    if df is None or len(df) < 50:
+        return "NEUTRAL"
 
-    for tf_name, (period, interval) in tf_map.items():
+    df = add_ind(df)
+    last = df.iloc[-1]
 
-        if symbol_key == "BTC/USD":
-            tf = "1d" if tf_name == "daily" else "4h"
-
-            df = fetch_ccxt("okx", "BTC/USDT", tf=tf, limit=300)
-
-            if df is None:
-                df = fetch_ccxt("kucoin", "BTC/USDT", tf=tf, limit=300)
-
-        else:
-            df = fetch_yf(
-                MARKETS[symbol_key]["yf"],
-                period=period,
-                interval=interval
-            )
-
-        if df is None or len(df) < 50:
-            return "NEUTRAL"
-
-        df = add_ind(df)
-        last = df.iloc[-1]
-
-        bullish = (
-            last["ema50"] > last["ema200"]
-            and last["rsi"] > 55
-        )
-
-        bearish = (
-            last["ema50"] < last["ema200"]
-            and last["rsi"] < 45
-        )
-
-        if bullish:
-            trends[tf_name] = "BULL"
-        elif bearish:
-            trends[tf_name] = "BEAR"
-        else:
-            trends[tf_name] = "NEUTRAL"
-
-    if trends["daily"] == trends["h4"] == "BULL":
-        final_trend = "BULL"
-
-    elif trends["daily"] == trends["h4"] == "BEAR":
-        final_trend = "BEAR"
-
+    if last["ema21"] > last["ema50"]:
+        trend = "BULL"
+    elif last["ema21"] < last["ema50"]:
+        trend = "BEAR"
     else:
-        final_trend = "NEUTRAL"
+        trend = "NEUTRAL"
 
-    cache["trend"] = final_trend
+    cache["trend"] = trend
     cache["ts"] = now
 
-    return final_trend
+    return trend
 
 # ═══════════════════════════════════════════════════════════════
 # CONDITIONS
@@ -447,4 +408,153 @@ def calc_levels(price, direction, atr, symbol_key, df):
 # ═══════════════════════════════════════════════════════════════
 # LOT SIZE
 # ═══════════════════════════════════════════════════════════════
-def lot_for_risk(price, sl​​​​​​​​​​​​​​​​
+def lot_for_risk(price, sl, symbol_key, risk=50):
+    sl_dist = abs(price - sl)
+
+    if sl_dist == 0:
+        return 0.01
+
+    dpl = DOLLAR_PER_LOT[symbol_key]
+    return max(round(risk / (sl_dist * dpl), 3), 0.01)
+
+# ═══════════════════════════════════════════════════════════════
+# PROCESS
+# ═══════════════════════════════════════════════════════════════
+def process(symbol_key):
+    log.info(f"🔍 Scanning {symbol_key}")
+
+    ok, session = in_session(symbol_key)
+
+    if not ok:
+        return
+
+    df, source = get_entry_data(symbol_key)
+
+    if df is None or len(df) < 100:
+        return
+
+    df = add_ind(df)
+    price = float(df.iloc[-1]["close"])
+
+    if not (
+        MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]
+    ):
+        return
+
+    trend = get_trend(symbol_key)
+    if symbol_key == "BTC/USD" and trend == "NEUTRAL":
+        return
+
+    buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(df, trend, symbol_key)
+
+    best = max(buy_score, sell_score)
+    log.info(f"{symbol_key} | Buy Score: {buy_score} | Sell Score: {sell_score} | Best: {best}")
+
+    if adx < ADX_THRESHOLD:
+        log.info(f"❌ {symbol_key} rejected due to weak ADX: {adx:.1f}")
+        return
+
+    required_score = CONFIRM_THRESHOLD
+
+    # Asian stricter
+    if session == "Asian":
+        required_score += 1
+
+    # Gold precision
+    if symbol_key == "XAU/USD":
+        required_score = max(required_score, 7)
+
+    # Silver precision
+    if symbol_key == "XAG/USD" and session == "Asian":
+        required_score = max(required_score, 7)
+
+    # NAS precision
+    if symbol_key == "NAS100" and session == "Asian":
+        required_score = max(required_score, 7)
+
+    # US500 precision
+    if symbol_key == "US500" and session == "Asian":
+        required_score = max(required_score, 7)
+
+    if best < required_score:
+        return
+
+    now = time.time()
+
+    if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
+        log.info(f"⏳ {symbol_key} cooldown active")
+        return
+
+    if buy_score == sell_score:
+        return
+
+    direction = "BUY" if buy_score > sell_score else "SELL"
+    checks = buy if direction == "BUY" else sell
+
+    sl, tp, sl_dist = calc_levels(price, direction, atr, symbol_key, df)
+    lot = lot_for_risk(price, sl, symbol_key, 50)
+
+    _signal_sent[symbol_key] = now
+
+    mt5 = MARKETS[symbol_key]["mt5"]
+    dec = MARKETS[symbol_key]["decimals"]
+
+    msg = f'''
+🚀 *A+ SIGNAL — {mt5}* 🚀
+_{MARKETS[symbol_key]["tier"]}_
+
+🔥 *Action:* {"BUY 📈" if direction == "BUY" else "SELL 📉"}
+⭐ *Score:* {best}/9
+
+📍 *Entry:* ${price:,.{dec}f}
+🛑 *SL:* ${sl:,.{dec}f}
+🎯 *TP:* ${tp:,.{dec}f} *(1:2.5 RR)*
+
+📈 *RSI:* {rsi:.1f}
+📉 *ADX:* {adx:.1f}
+🌍 *HTF:* {trend}
+⏰ *Session:* {session}
+📡 *Source:* {source}
+
+💵 *$50 Risk Lot:* {lot:.3f}
+
+✅ *A+ Conditions:*
+''' + "\n".join(
+        [f" ✅ {k}" for k, v in checks.items() if v]
+    ) + "\n\n⚡ *STRICT ELITE SETUP ONLY*"
+
+    send_telegram(msg)
+    log.info(f"🚀 A+ SIGNAL {symbol_key} {direction}")
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN LOOP
+# ═══════════════════════════════════════════════════════════════
+def main():
+    log.info("═" * 60)
+    log.info("🚀 MOMENTUM HUNTER v16.0 STARTED")
+    log.info("🎯 A+ FILTER ONLY | STRICT ELITE MODE")
+    log.info("📊 15m HTF + 5m Entry")
+    log.info("🥇 Gold | 🥈 Silver | 🥉 BTC | 🏅 NAS100 | 🇺🇸 US500")
+    log.info("═" * 60)
+
+    send_telegram("🚀 Bot started successfully on Railway")
+
+    while True:
+        try:
+            log.info("🔄 Running market scan cycle...")
+
+            with ThreadPoolExecutor(max_workers=5) as ex:
+                futures = [ex.submit(process, s) for s in SYMBOLS]
+
+                for f in as_completed(futures):
+                    pass
+
+            log.info("⏱ Waiting 20s for next cycle...")
+            time.sleep(20)
+
+        except Exception as e:
+            log.error(f"Main loop error: {e}")
+            time.sleep(15)
+
+if __name__ == "__main__":
+    main()
