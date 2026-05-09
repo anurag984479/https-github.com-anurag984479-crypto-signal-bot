@@ -102,17 +102,18 @@ MARKETS = {
         "tier": "⭐⭐⭐⭐⭐ NAS100 ELITE",
         "win_rate": "86%"
     },
+
     "US500": {
-    "mt5": "US500.Qtek",
-    "yf": "^GSPC",
-    "price_lo": 3000,
-    "price_hi": 7000,
-    "sessions": [13, 21],
-    "decimals": 2,
-    "min_sl": 20.0,
-    "tier": "⭐⭐⭐⭐⭐ US500 ELITE",
-    "win_rate": "87%"
-   },
+        "mt5": "US500.Qtek",
+        "yf": "^GSPC",
+        "price_lo": 3000,
+        "price_hi": 7000,
+        "sessions": [13, 21],
+        "decimals": 2,
+        "min_sl": 20.0,
+        "tier": "⭐⭐⭐⭐⭐ US500 ELITE",
+        "win_rate": "87%"
+    },
 }
 
 SYMBOLS = list(MARKETS.keys())
@@ -160,7 +161,8 @@ def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
     s, e = MARKETS[symbol_key]["sessions"]
 
-    if not (s <= h < e):
+    # BTC uses [0, 23] to mean 24/7 — always in session
+    if not (s == 0 and e == 23) and not (s <= h < e):
         return False, "Closed"
 
     if 12 <= h < 16:
@@ -214,9 +216,7 @@ def fetch_ccxt(src_name, sym, tf="5m", limit=300):
 
 def get_entry_data(symbol_key):
     if symbol_key == "BTC/USD":
-        for src in ["coinbase", "binance"]:
-            pair = "BTC/USDT" if src == "binance" else "BTC/USD"
-
+        for src, pair in [("binance", "BTC/USDT"), ("bybit", "BTC/USDT")]:
             df = fetch_ccxt(src, pair)
 
             if df is not None and len(df) > 100:
@@ -274,11 +274,9 @@ def add_ind(df):
 
     return df
 
-
 # ═══════════════════════════════════════════════════════════════
 # HTF TREND
 # ═══════════════════════════════════════════════════════════════
-
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
     now = time.time()
@@ -296,12 +294,12 @@ def get_trend(symbol_key):
     for tf_name, (period, interval) in tf_map.items():
 
         if symbol_key == "BTC/USD":
-            tf = "1d" if tf_name == "daily" else "240m"
+            tf = "1d" if tf_name == "daily" else "4h"
 
-            df = fetch_ccxt("coinbase", "BTC/USD", tf=tf, limit=300)
+            df = fetch_ccxt("binance", "BTC/USDT", tf=tf, limit=300)
 
             if df is None:
-                df = fetch_ccxt("kraken", "BTC/USD", tf=tf, limit=300)
+                df = fetch_ccxt("bybit", "BTC/USDT", tf=tf, limit=300)
 
         else:
             df = fetch_yf(
