@@ -82,8 +82,8 @@ MARKETS = {
     "BTC/USD": {
         "mt5": "BTCUSD.Qraw",
         "yf": None,
-        "price_lo": 50000,
-        "price_hi": 200000,
+        "price_lo": 70000,
+        "price_hi": 120000,
         "sessions": [0, 23],
         "decimals": 2,
         "min_sl": 120.0,
