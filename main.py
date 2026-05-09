@@ -21,7 +21,6 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
-
 # ═══════════════════════════════════════════════════════════════
 # LOGGING
 # ═══════════════════════════════════════════════════════════════
@@ -32,7 +31,6 @@ logging.basicConfig(
 )
 log = logging.getLogger("v16.0")
 
-
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM
 # ═══════════════════════════════════════════════════════════════
@@ -41,7 +39,6 @@ CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
 if not TOKEN or not CHAT_ID:
     raise ValueError("Missing TOKEN or CHAT_ID environment variables")
-
 
 # ═══════════════════════════════════════════════════════════════
 # RISK CONFIG
@@ -53,7 +50,6 @@ DOLLAR_PER_LOT = {
     "NAS100": 10.0,
     "US500": 10.0,
 }
-
 
 # ═══════════════════════════════════════════════════════════════
 # MARKETS
@@ -121,25 +117,22 @@ MARKETS = {
 
 SYMBOLS = list(MARKETS.keys())
 
-
 # ═══════════════════════════════════════════════════════════════
 # STRATEGY SETTINGS
 # ═══════════════════════════════════════════════════════════════
 RR = 2.5
 ATR_MULT = 0.28
-VOL_MULT = 1.15
+VOL_MULT = 1.20
 ADX_THRESHOLD = 22
-CONFIRM_THRESHOLD = 6
+CONFIRM_THRESHOLD = 7
 SIGNAL_COOLDOWN = 2400
 HTF_REFRESH = 1800
-
 
 # ═══════════════════════════════════════════════════════════════
 # STATE
 # ═══════════════════════════════════════════════════════════════
 _signal_sent = {s: 0 for s in SYMBOLS}
 _htf_cache = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
-
 
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM
@@ -160,7 +153,6 @@ def send_telegram(msg):
     except Exception as e:
         log.error(f"Telegram error: {e}")
 
-
 # ═══════════════════════════════════════════════════════════════
 # SESSION FILTER
 # ═══════════════════════════════════════════════════════════════
@@ -178,7 +170,6 @@ def in_session(symbol_key):
         return True, "London 🔥"
 
     return True, "Asian"
-
 
 # ═══════════════════════════════════════════════════════════════
 # DATA FETCH
@@ -207,7 +198,6 @@ def fetch_yf(ticker, period="15d", interval="5m"):
         log.error(f"YF fetch error: {e}")
         return None
 
-
 def fetch_ccxt(src_name, sym, tf="5m", limit=300):
     try:
         exchange = getattr(ccxt, src_name)()
@@ -221,7 +211,6 @@ def fetch_ccxt(src_name, sym, tf="5m", limit=300):
     except Exception as e:
         log.error(f"CCXT fetch error ({src_name} {sym}): {e}")
         return None
-
 
 def get_entry_data(symbol_key):
     if symbol_key == "BTC/USD":
@@ -243,7 +232,6 @@ def get_entry_data(symbol_key):
 
     return None, None
 
-
 def get_htf(symbol_key):
     yf_sym = MARKETS[symbol_key]["yf"]
 
@@ -252,10 +240,14 @@ def get_htf(symbol_key):
 
     return None
 
-
 # ═══════════════════════════════════════════════════════════════
 # INDICATORS
 # ═══════════════════════════════════════════════════════════════
+def get_sr_levels(df, lookback=50):
+    resistance = df["high"].tail(lookback).max()
+    support = df["low"].tail(lookback).min()
+    return support, resistance
+
 def add_ind(df):
     df = df.copy()
 
@@ -263,11 +255,11 @@ def add_ind(df):
     hi = pd.to_numeric(df["high"])
     lo = pd.to_numeric(df["low"])
     vol = pd.to_numeric(df["volume"])
-
+ 
     df["ema9"] = ta.trend.EMAIndicator(cl, 9).ema_indicator()
     df["ema21"] = ta.trend.EMAIndicator(cl, 21).ema_indicator()
     df["ema50"] = ta.trend.EMAIndicator(cl, 50).ema_indicator()
-
+    df["ema200"] = ta.trend.EMAIndicator(cl, 200).ema_indicator()
     df["rsi"] = ta.momentum.RSIIndicator(cl, 14).rsi()
 
     df["atr"] = ta.volatility.AverageTrueRange(
@@ -282,10 +274,11 @@ def add_ind(df):
 
     return df
 
-
+   
 # ═══════════════════════════════════════════════════════════════
 # HTF TREND
 # ═══════════════════════════════════════════════════════════════
+
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
     now = time.time()
@@ -293,31 +286,70 @@ def get_trend(symbol_key):
     if now - cache["ts"] < HTF_REFRESH:
         return cache["trend"]
 
-    df = get_htf(symbol_key)
+    tf_map = {
+    "daily": ("60d", "1d"),
+    "h4": ("60d", "60m"),
+    }
 
-    if df is None or len(df) < 50:
-        return "NEUTRAL"
+    trends = {}
 
-    df = add_ind(df)
-    last = df.iloc[-1]
+    for tf_name, (period, interval) in tf_map.items():
 
-    if last["ema21"] > last["ema50"]:
-        trend = "BULL"
-    elif last["ema21"] < last["ema50"]:
-        trend = "BEAR"
+        if symbol_key == "BTC/USD":
+            tf = "1d" if tf_name == "daily" else "4h"
+
+            df = fetch_ccxt("coinbase", "BTC/USD", tf=tf, limit=300)
+
+            if df is None:
+                df = fetch_ccxt("binance", "BTC/USDT", tf=tf, limit=300)
+
+        else:
+            df = fetch_yf(
+                MARKETS[symbol_key]["yf"],
+                period=period,
+                interval=interval
+            )
+
+        if df is None or len(df) < 50:
+            return "NEUTRAL"
+
+        df = add_ind(df)
+        last = df.iloc[-1]
+
+        bullish = (
+            last["ema50"] > last["ema200"]
+            and last["rsi"] > 55
+        )
+
+        bearish = (
+            last["ema50"] < last["ema200"]
+            and last["rsi"] < 45
+        )
+
+        if bullish:
+            trends[tf_name] = "BULL"
+        elif bearish:
+            trends[tf_name] = "BEAR"
+        else:
+            trends[tf_name] = "NEUTRAL"
+
+    if trends["daily"] == trends["h4"] == "BULL":
+        final_trend = "BULL"
+
+    elif trends["daily"] == trends["h4"] == "BEAR":
+        final_trend = "BEAR"
+
     else:
-        trend = "NEUTRAL"
+        final_trend = "NEUTRAL"
 
-    cache["trend"] = trend
+    cache["trend"] = final_trend
     cache["ts"] = now
 
-    return trend
-
-
+    return final_trend
 # ═══════════════════════════════════════════════════════════════
 # CONDITIONS
 # ═══════════════════════════════════════════════════════════════
-def check_conditions(df, trend):
+def check_conditions(df, trend, symbol_key):
     last = df.iloc[-1]
 
     rsi = float(last["rsi"])
@@ -344,25 +376,34 @@ def check_conditions(df, trend):
     bullish_break = close > df.iloc[-2]["high"] + atr * 0.15
     bearish_break = close < df.iloc[-2]["low"] - atr * 0.15
 
+    support, resistance = get_sr_levels(df)
+
+    buffer = 0.003 if symbol_key == "BTC/USD" else 0.005
+
+    sr_buy_ok = close < resistance * (1 - buffer)
+    sr_sell_ok = close > support * (1 + buffer)
+
     buy = {
         "HTF Bull": trend == "BULL",
         "EMA Alignment": ema9 > ema21 > ema50,
-        "RSI Strength": rsi > 50,
+        "RSI Strength": rsi > 55,
         "Strong Volume": vol_ok,
         "Bull Candle": close > op and strong_body,
         "EMA Pullback": near_ema,
         "BOS": bullish_break,
+        "Support/Resistance": sr_buy_ok,
         "ADX": adx > ADX_THRESHOLD,
     }
 
     sell = {
         "HTF Bear": trend == "BEAR",
         "EMA Alignment": ema9 < ema21 < ema50,
-        "RSI Weakness": rsi < 50,
+        "RSI Weakness": rsi < 45,
         "Strong Volume": vol_ok,
         "Bear Candle": close < op and strong_body,
         "EMA Pullback": near_ema,
         "BOS": bearish_break,
+        "Support/Resistance": sr_sell_ok,
         "ADX": adx > ADX_THRESHOLD,
     }
 
@@ -370,7 +411,6 @@ def check_conditions(df, trend):
     sell_score = sum(sell.values())
 
     return buy, sell, buy_score, sell_score, rsi, close, atr, adx
-
 
 # ═══════════════════════════════════════════════════════════════
 # LEVELS
@@ -387,8 +427,10 @@ def calc_levels(price, direction, atr, symbol_key, df):
     else:
         swing = recent["high"].max() - price
 
-    sl_dist = max(min_sl, min(atr_sl, swing))
-    
+    sl_dist = max(min_sl, atr_sl, swing * 0.5)
+
+    if symbol_key == "BTC/USD":
+        sl_dist *= 1.2
 
     if direction == "BUY":
         sl = price - sl_dist
@@ -403,7 +445,6 @@ def calc_levels(price, direction, atr, symbol_key, df):
         round(sl_dist, decimals)
     )
 
-
 # ═══════════════════════════════════════════════════════════════
 # LOT SIZE
 # ═══════════════════════════════════════════════════════════════
@@ -415,7 +456,6 @@ def lot_for_risk(price, sl, symbol_key, risk=50):
 
     dpl = DOLLAR_PER_LOT[symbol_key]
     return max(round(risk / (sl_dist * dpl), 3), 0.01)
-
 
 # ═══════════════════════════════════════════════════════════════
 # PROCESS
@@ -445,7 +485,7 @@ def process(symbol_key):
     if symbol_key == "BTC/USD" and trend == "NEUTRAL":
         return
 
-    buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(df, trend)
+    buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(df, trend, symbol_key)
 
     best = max(buy_score, sell_score)
     log.info(f"{symbol_key} | Buy Score: {buy_score} | Sell Score: {sell_score} | Best: {best}")
@@ -485,6 +525,9 @@ def process(symbol_key):
         log.info(f"⏳ {symbol_key} cooldown active")
         return
 
+    if buy_score == sell_score:
+        return
+
     direction = "BUY" if buy_score > sell_score else "SELL"
     checks = buy if direction == "BUY" else sell
 
@@ -501,7 +544,7 @@ def process(symbol_key):
 _{MARKETS[symbol_key]["tier"]}_
 
 🔥 *Action:* {"BUY 📈" if direction == "BUY" else "SELL 📉"}
-⭐ *Score:* {best}/8
+⭐ *Score:* {best}/9
 
 📍 *Entry:* ${price:,.{dec}f}
 🛑 *SL:* ${sl:,.{dec}f}
@@ -522,7 +565,6 @@ _{MARKETS[symbol_key]["tier"]}_
 
     send_telegram(msg)
     log.info(f"🚀 A+ SIGNAL {symbol_key} {direction}")
-
 
 # ═══════════════════════════════════════════════════════════════
 # MAIN LOOP
@@ -554,6 +596,6 @@ def main():
             log.error(f"Main loop error: {e}")
             time.sleep(15)
 
-
 if __name__ == "__main__":
     main()
+ 
