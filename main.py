@@ -295,15 +295,13 @@ def get_trend(symbol_key):
 
     for tf_name, (period, interval) in tf_map.items():
 
-        if symbol_key == "BTC/USD":
-            tf = "1d" if tf_name == "daily" else "240m"
+    if symbol_key == "BTC/USD":
+    tf = "1d" if tf_name == "daily" else "240m"
 
-            df = fetch_ccxt("coinbase", "BTC/USD", tf=tf, limit=300)
+    df = fetch_ccxt("coinbase", "BTC/USD", tf=tf, limit=300)
 
-       if df is None:
-            
-            df = fetch_ccxt("kraken", "BTC/USD", tf=tf, limit=300)
-
+    if df is None:
+        df = fetch_ccxt("kraken", "BTC/USD", tf=tf, limit=300)
         else:
             df = fetch_yf(
                 MARKETS[symbol_key]["yf"],
