@@ -295,7 +295,7 @@ def get_trend(symbol_key):
 
     for tf_name, (period, interval) in tf_map.items():
 
-    if symbol_key == "BTC/USD":
+        if symbol_key == "BTC/USD":
         tf = "1d" if tf_name == "daily" else "240m"
 
         df = fetch_ccxt("coinbase", "BTC/USD", tf=tf, limit=300)
