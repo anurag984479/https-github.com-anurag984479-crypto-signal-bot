@@ -255,7 +255,7 @@ def add_ind(df):
     hi = pd.to_numeric(df["high"])
     lo = pd.to_numeric(df["low"])
     vol = pd.to_numeric(df["volume"])
- 
+
     df["ema9"] = ta.trend.EMAIndicator(cl, 9).ema_indicator()
     df["ema21"] = ta.trend.EMAIndicator(cl, 21).ema_indicator()
     df["ema50"] = ta.trend.EMAIndicator(cl, 50).ema_indicator()
@@ -274,7 +274,7 @@ def add_ind(df):
 
     return df
 
-   
+
 # ═══════════════════════════════════════════════════════════════
 # HTF TREND
 # ═══════════════════════════════════════════════════════════════
@@ -287,8 +287,8 @@ def get_trend(symbol_key):
         return cache["trend"]
 
     tf_map = {
-    "daily": ("60d", "1d"),
-    "h4": ("60d", "60m"),
+        "daily": ("60d", "1d"),
+        "h4": ("60d", "60m"),
     }
 
     trends = {}
@@ -296,19 +296,19 @@ def get_trend(symbol_key):
     for tf_name, (period, interval) in tf_map.items():
 
         if symbol_key == "BTC/USD":
-        tf = "1d" if tf_name == "daily" else "240m"
+            tf = "1d" if tf_name == "daily" else "240m"
 
-        df = fetch_ccxt("coinbase", "BTC/USD", tf=tf, limit=300)
+            df = fetch_ccxt("coinbase", "BTC/USD", tf=tf, limit=300)
 
-        if df is None:
-            df = fetch_ccxt("kraken", "BTC/USD", tf=tf, limit=300)
+            if df is None:
+                df = fetch_ccxt("kraken", "BTC/USD", tf=tf, limit=300)
 
-    else:
-        df = fetch_yf(
-            MARKETS[symbol_key]["yf"],
-            period=period,
-            interval=interval
-        )
+        else:
+            df = fetch_yf(
+                MARKETS[symbol_key]["yf"],
+                period=period,
+                interval=interval
+            )
 
         if df is None or len(df) < 50:
             return "NEUTRAL"
@@ -346,6 +346,7 @@ def get_trend(symbol_key):
     cache["ts"] = now
 
     return final_trend
+
 # ═══════════════════════════════════════════════════════════════
 # CONDITIONS
 # ═══════════════════════════════════════════════════════════════
@@ -496,23 +497,23 @@ def process(symbol_key):
 
     required_score = CONFIRM_THRESHOLD
 
-# Asian stricter
+    # Asian stricter
     if session == "Asian":
         required_score += 1
 
-# Gold precision
+    # Gold precision
     if symbol_key == "XAU/USD":
         required_score = max(required_score, 7)
 
-# Silver precision
+    # Silver precision
     if symbol_key == "XAG/USD" and session == "Asian":
         required_score = max(required_score, 7)
 
-# NAS precision
+    # NAS precision
     if symbol_key == "NAS100" and session == "Asian":
         required_score = max(required_score, 7)
 
-# US500 precision
+    # US500 precision
     if symbol_key == "US500" and session == "Asian":
         required_score = max(required_score, 7)
 
@@ -598,4 +599,3 @@ def main():
 
 if __name__ == "__main__":
     main()
- 
