@@ -125,10 +125,17 @@ RR = 2.5
 ATR_MULT = 0.40
 VOL_MULT = 1.20
 ADX_THRESHOLD = 22
-CONFIRM_THRESHOLD = 7
-SIGNAL_COOLDOWN = 2400
-HTF_REFRESH = 1800
+CONFIRM_THRESHOLD = 8
 
+ATR_SPIKE_MULT = 2.0
+
+MAX_SPREAD = {
+    "XAU/USD": 0.50,
+    "XAG/USD": 0.05,
+    "BTC/USD": 40,
+    "NAS100": 3.0,
+    "US500": 1.5,
+}
 # ═══════════════════════════════════════════════════════════════
 # STATE
 # ═══════════════════════════════════════════════════════════════
@@ -242,6 +249,12 @@ def get_htf(symbol_key):
 
     return None
 
+def get_spread(df):
+    if df is None or len(df) < 1:
+        return 999
+    last = df.iloc[-1]
+    return abs(float(last["high"]) - float(last["low"]))
+
 # ═══════════════════════════════════════════════════════════════
 # INDICATORS
 # ═══════════════════════════════════════════════════════════════
@@ -345,6 +358,26 @@ def check_conditions(df, trend, symbol_key):
 
     prev = df.iloc[-2]
 
+    # ATR spike filter
+    atr_mean = df["atr"].rolling(50).mean().iloc[-1]
+    atr_safe = atr < atr_mean * ATR_SPIKE_MULT
+
+    # Liquidity sweep
+    sweep_buy = (
+    last["low"] < df["low"].tail(10).min()
+    and close > last["low"]
+    )
+
+    sweep_sell = (
+    last["high"] > df["high"].tail(10).max()
+    and close < last["high"]
+    )
+
+    # Order block
+    ob_buy = prev["close"] < prev["open"] and close > prev["high"]
+    ob_sell = prev["close"] > prev["open"] and close < prev["low"]
+    
+
     tcr_buy = (
         trend == "BULL"
         and ema9 > ema21 > ema50
@@ -372,6 +405,9 @@ def check_conditions(df, trend, symbol_key):
         "Support/Resistance": sr_buy_ok,
         "ADX": adx > ADX_THRESHOLD,
         "TCR": tcr_buy,  
+        "Liquidity Sweep": sweep_buy,
+        "Order Block": ob_buy,
+        "ATR Safe": atr_safe,
     }
 
     sell = {
@@ -385,6 +421,9 @@ def check_conditions(df, trend, symbol_key):
         "Support/Resistance": sr_sell_ok,
         "ADX": adx > ADX_THRESHOLD,
         "TCR": tcr_sell,
+        "Liquidity Sweep": sweep_sell,
+        "Order Block": ob_sell,
+        "ATR Safe": atr_safe,
     }
 
     buy_score = sum(buy.values())
@@ -428,7 +467,14 @@ def calc_levels(price, direction, atr, symbol_key, df):
 # ═══════════════════════════════════════════════════════════════
 # LOT SIZE
 # ═══════════════════════════════════════════════════════════════
-def lot_for_risk(price, sl, symbol_key, risk=50):
+def dynamic_risk(score):
+    if score >= 11:
+        return 75
+    elif score >= 9:
+        return 50
+    return 30
+
+def lot_for_risk(price, sl, symbol_key, risk):
     sl_dist = abs(price - sl)
 
     if sl_dist == 0:
@@ -453,6 +499,12 @@ def process(symbol_key):
     if df is None or len(df) < 100:
         return
 
+    spread = get_spread(df)
+
+    if spread > MAX_SPREAD[symbol_key]:
+        log.info(f"❌ {symbol_key} rejected due to spread: {spread:.2f}")
+        return
+
     df = add_ind(df)
     price = float(df.iloc[-1]["close"])
 
@@ -468,6 +520,12 @@ def process(symbol_key):
     buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(df, trend, symbol_key)
 
     best = max(buy_score, sell_score)
+    if best >= 11:
+        rr = 3.0
+    elif best >= 9:
+        rr = 2.5
+    else:
+        rr = 2.0
     log.info(f"{symbol_key} | Buy Score: {buy_score} | Sell Score: {sell_score} | Best: {best}")
 
     if adx < ADX_THRESHOLD:
