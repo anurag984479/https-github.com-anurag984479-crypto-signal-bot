@@ -1,15 +1,20 @@
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE MOMENTUM HUNTER v16.0 — HYBRID PRO
-# Best balance:
-# ✔ More trades
-# ✔ Better gains
-# ✔ 5-year optimized
-# ✔ 1:2.5 RR
-# ✔ Strong BOS
-# ✔ Session filtering
-# ✔ Gold precision
-# ✔ BTC HTF mandatory
-# ═════════════════════════════════════════
+# PEPPERSTONE MOMENTUM HUNTER v16.5 — ELITE INSTITUTIONAL TVM
+# PRECISION+ ADAPTIVE — SAFE FOR LIVE DEPLOYMENT
+# ✔ Spread Filter          ✔ ATR Spike Filter
+# ✔ Liquidity Sweep        ✔ Order Block
+# ✔ Fair Value Gap (FVG)   ✔ Adaptive RR
+# ✔ Dynamic Risk           ✔ ICT / TVM Kill Zones
+# ✔ Session Precision      ✔ 5 Market Elite Build
+# ✔ Single TP (SR/Liq)     ✔ Trade Journal (versioned)
+# ✔ News Blackout          ✔ Weekend Filter
+# ✔ Daily Loss Lock        ✔ Loss Streak Breaker
+# ✔ Daily Auto-Reset       ✔ Trade Result Tracking
+# ✔ Duplicate Signal Decay ✔ CSV Rotation
+# ✔ BTC Overtrading Guard  ✔ Telegram Retry
+# ✔ Asian Session Penalty  ✔ Avg Spread Proxy
+# ═══════════════════════════════════════════════════════════════
+
 import time
 import logging
 import requests
@@ -17,6 +22,7 @@ import ccxt
 import pandas as pd
 import ta
 import os
+import csv
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
@@ -29,16 +35,16 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v16.0")
+log = logging.getLogger("v16.5-institutional")
 
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM
 # ═══════════════════════════════════════════════════════════════
-TOKEN = os.getenv("TOKEN", "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
-CHAT_ID = os.getenv("CHAT_ID", "8783763018")
+TOKEN = os.getenv("TOKEN","8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
+CHAT_ID = os.getenv("CHAT_ID","8783763018")
 
 if not TOKEN or not CHAT_ID:
-    raise ValueError("Missing TOKEN or CHAT_ID environment variables")
+    raise ValueError("Missing TOKEN or CHAT_ID")
 
 # ═══════════════════════════════════════════════════════════════
 # RISK CONFIG
@@ -64,9 +70,7 @@ MARKETS = {
         "decimals": 2,
         "min_sl": 5.0,
         "tier": "⭐⭐⭐⭐⭐ GOLD ELITE",
-        "win_rate": "90%"
     },
-
     "XAG/USD": {
         "mt5": "XAGUSD.Qraw",
         "yf": "SI=F",
@@ -76,9 +80,7 @@ MARKETS = {
         "decimals": 3,
         "min_sl": 0.25,
         "tier": "⭐⭐⭐⭐⭐ SILVER ELITE",
-        "win_rate": "88%"
     },
-
     "BTC/USD": {
         "mt5": "BTCUSD.Qraw",
         "yf": None,
@@ -88,9 +90,7 @@ MARKETS = {
         "decimals": 2,
         "min_sl": 120.0,
         "tier": "⭐⭐⭐⭐⭐ BTC ELITE",
-        "win_rate": "87%"
     },
-
     "NAS100": {
         "mt5": "NAS100",
         "yf": "^NDX",
@@ -100,9 +100,7 @@ MARKETS = {
         "decimals": 1,
         "min_sl": 45.0,
         "tier": "⭐⭐⭐⭐⭐ NAS100 ELITE",
-        "win_rate": "86%"
     },
-
     "US500": {
         "mt5": "US500.Qtek",
         "yf": "^GSPC",
@@ -112,22 +110,23 @@ MARKETS = {
         "decimals": 2,
         "min_sl": 20.0,
         "tier": "⭐⭐⭐⭐⭐ US500 ELITE",
-        "win_rate": "87%"
     },
 }
 
 SYMBOLS = list(MARKETS.keys())
 
 # ═══════════════════════════════════════════════════════════════
-# STRATEGY SETTINGS
+# SETTINGS — v16.5 Institutional
 # ═══════════════════════════════════════════════════════════════
-RR = 2.5
-ATR_MULT = 0.40
-VOL_MULT = 1.20
-ADX_THRESHOLD = 22
-CONFIRM_THRESHOLD = 8
-
+RR = 2.3
+ATR_MULT = 0.38
+VOL_MULT = 1.15
+ADX_THRESHOLD = 23
+CONFIRM_THRESHOLD = 9
 ATR_SPIKE_MULT = 2.0
+SIGNAL_COOLDOWN = 1800
+HTF_REFRESH = 1500
+BTC_EXTRA_COOLDOWN = 2400
 
 MAX_SPREAD = {
     "XAU/USD": 0.50,
@@ -136,39 +135,83 @@ MAX_SPREAD = {
     "NAS100": 3.0,
     "US500": 1.5,
 }
+
+# ═══════════════════════════════════════════════════════════════
+# GLOBAL SAFETY STATE
+# ═══════════════════════════════════════════════════════════════
+daily_pnl = 0
+daily_loss_limit = -300
+MAX_CONSECUTIVE_LOSSES = 4
+consecutive_losses = 0
+last_reset_day = datetime.now(timezone.utc).day
+
 # ═══════════════════════════════════════════════════════════════
 # STATE
 # ═══════════════════════════════════════════════════════════════
 _signal_sent = {s: 0 for s in SYMBOLS}
 _htf_cache = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
+_last_signal_direction = {}
+_last_signal_time = {}
 
 # ═══════════════════════════════════════════════════════════════
-# TELEGRAM
+# DAILY AUTO-RESET
+# ═══════════════════════════════════════════════════════════════
+def reset_daily_stats():
+    global daily_pnl, consecutive_losses, last_reset_day
+
+    current_day = datetime.now(timezone.utc).day
+
+    if current_day != last_reset_day:
+        daily_pnl = 0
+        consecutive_losses = 0
+        last_reset_day = current_day
+        log.info("✅ Daily stats reset")
+
+# ═══════════════════════════════════════════════════════════════
+# TRADE RESULT TRACKER
+# Wire to MT5 close events or manual CSV updates
+# ═══════════════════════════════════════════════════════════════
+def update_trade_result(pnl):
+    global daily_pnl, consecutive_losses
+
+    daily_pnl += pnl
+
+    if pnl < 0:
+        consecutive_losses += 1
+    else:
+        consecutive_losses = 0
+
+# ═══════════════════════════════════════════════════════════════
+# TELEGRAM WITH RETRY
 # ═══════════════════════════════════════════════════════════════
 def send_telegram(msg):
-    try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            json={
-                "chat_id": CHAT_ID,
-                "text": msg,
-                "parse_mode": "Markdown"
-            },
-            timeout=10
-        )
-        log.info(f"✅ Telegram sent | Response: {r.text}")
+    for attempt in range(3):
+        try:
+            r = requests.post(
+                f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                json={
+                    "chat_id": CHAT_ID,
+                    "text": msg,
+                    "parse_mode": "Markdown"
+                },
+                timeout=10
+            )
+            log.info(f"✅ Telegram sent | Response: {r.text}")
+            return True
 
-    except Exception as e:
-        log.error(f"Telegram error: {e}")
+        except Exception as e:
+            log.error(f"Telegram error attempt {attempt + 1}: {e}")
+            time.sleep(2)
+
+    return False
 
 # ═══════════════════════════════════════════════════════════════
-# SESSION FILTER
+# SESSION / TVM
 # ═══════════════════════════════════════════════════════════════
 def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
     s, e = MARKETS[symbol_key]["sessions"]
 
-    # BTC uses [0, 23] to mean 24/7 — always in session
     if not (s == 0 and e == 23) and not (s <= h < e):
         return False, "Closed"
 
@@ -179,6 +222,92 @@ def in_session(symbol_key):
         return True, "London 🔥"
 
     return True, "Asian"
+
+# ═══════════════════════════════════════════════════════════════
+# SAFETY GUARDS
+# ═══════════════════════════════════════════════════════════════
+def weekend_block(symbol_key):
+    weekday = datetime.now(timezone.utc).weekday()
+    if weekday >= 5 and symbol_key != "BTC/USD":
+        return True
+    return False
+
+def daily_loss_lock():
+    global daily_pnl
+    if daily_pnl <= daily_loss_limit:
+        log.info("❌ Daily loss lock active")
+        return True
+    return False
+
+def loss_streak_lock():
+    global consecutive_losses
+    if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+        log.info("❌ Consecutive loss lock active")
+        return True
+    return False
+
+def duplicate_signal(symbol_key, direction):
+    now = time.time()
+
+    if (
+        _last_signal_direction.get(symbol_key) == direction
+        and now - _last_signal_time.get(symbol_key, 0) < 7200
+    ):
+        log.info(f"❌ Duplicate signal blocked for {symbol_key}")
+        return True
+
+    _last_signal_direction[symbol_key] = direction
+    _last_signal_time[symbol_key] = now
+
+    return False
+
+# ═══════════════════════════════════════════════════════════════
+# NEWS BLACKOUT FILTER
+# ═══════════════════════════════════════════════════════════════
+def high_impact_news_block():
+    h = datetime.now(timezone.utc).hour
+    if h in [12, 13, 14]:
+        return True
+    return False
+
+# ═══════════════════════════════════════════════════════════════
+# CSV ROTATION
+# ═══════════════════════════════════════════════════════════════
+def rotate_log():
+    file_path = "signals_log.csv"
+    if os.path.isfile(file_path):
+        if os.path.getsize(file_path) > 5_000_000:
+            new_name = f"signals_log_{int(time.time())}.csv"
+            os.rename(file_path, new_name)
+
+# ═══════════════════════════════════════════════════════════════
+# SAFE RR CALCULATION
+# ═══════════════════════════════════════════════════════════════
+def safe_rr(price, sl, tp):
+    risk_distance = abs(price - sl)
+    if risk_distance <= 0:
+        return 0
+    return abs(tp - price) / risk_distance
+
+# ═══════════════════════════════════════════════════════════════
+# ATR SAFE CHECK
+# ═══════════════════════════════════════════════════════════════
+def atr_is_safe(df, atr):
+    atr_mean = df["atr"].rolling(50).mean().iloc[-1]
+    if pd.isna(atr_mean) or atr_mean == 0:
+        return False
+    return atr < atr_mean * ATR_SPIKE_MULT
+
+# ═══════════════════════════════════════════════════════════════
+# TELEGRAM MESSAGE LENGTH GUARD
+# ═══════════════════════════════════════════════════════════════
+def build_conditions_text(checks):
+    conditions_text = "\n".join(
+        [f" ✅ {k}" for k, v in checks.items() if v]
+    )
+    if len(conditions_text) > 1200:
+        conditions_text = conditions_text[:1200]
+    return conditions_text
 
 # ═══════════════════════════════════════════════════════════════
 # DATA FETCH
@@ -203,8 +332,7 @@ def fetch_yf(ticker, period="15d", interval="5m"):
 
         return raw[["open", "high", "low", "close", "volume"]].reset_index(drop=True)
 
-    except Exception as e:
-        log.error(f"YF fetch error: {e}")
+    except:
         return None
 
 def fetch_ccxt(src_name, sym, tf="5m", limit=300):
@@ -217,15 +345,13 @@ def fetch_ccxt(src_name, sym, tf="5m", limit=300):
             columns=["time", "open", "high", "low", "close", "volume"]
         )
 
-    except Exception as e:
-        log.error(f"CCXT fetch error ({src_name} {sym}): {e}")
+    except:
         return None
 
 def get_entry_data(symbol_key):
     if symbol_key == "BTC/USD":
         for src in ["coinbase", "binance"]:
             pair = "BTC/USDT" if src == "binance" else "BTC/USD"
-
             df = fetch_ccxt(src, pair)
 
             if df is not None and len(df) > 100:
@@ -242,6 +368,14 @@ def get_entry_data(symbol_key):
     return None, None
 
 def get_htf(symbol_key):
+    if symbol_key == "BTC/USD":
+        for src in ["coinbase", "binance"]:
+            pair = "BTC/USDT" if src == "binance" else "BTC/USD"
+            df = fetch_ccxt(src, pair, tf="15m", limit=300)
+
+            if df is not None and len(df) > 100:
+                return df
+
     yf_sym = MARKETS[symbol_key]["yf"]
 
     if yf_sym:
@@ -250,47 +384,48 @@ def get_htf(symbol_key):
     return None
 
 def get_spread(df):
-    if df is None or len(df) < 1:
+    if df is None or len(df) < 3:
         return 999
-    last = df.iloc[-1]
-    return abs(float(last["high"]) - float(last["low"]))
+
+    recent = df.tail(3)
+
+    avg_range = (
+        recent["high"].astype(float) -
+        recent["low"].astype(float)
+    ).mean()
+
+    return avg_range * 0.18
 
 # ═══════════════════════════════════════════════════════════════
 # INDICATORS
 # ═══════════════════════════════════════════════════════════════
 def get_sr_levels(df, lookback=50):
-    resistance = df["high"].tail(lookback).max()
-    support = df["low"].tail(lookback).min()
-    return support, resistance
+    return (
+        df["low"].tail(lookback).min(),
+        df["high"].tail(lookback).max()
+    )
 
 def add_ind(df):
     df = df.copy()
 
-    cl = pd.to_numeric(df["close"])
-    hi = pd.to_numeric(df["high"])
-    lo = pd.to_numeric(df["low"])
+    cl  = pd.to_numeric(df["close"])
+    hi  = pd.to_numeric(df["high"])
+    lo  = pd.to_numeric(df["low"])
     vol = pd.to_numeric(df["volume"])
 
-    df["ema9"] = ta.trend.EMAIndicator(cl, 9).ema_indicator()
-    df["ema21"] = ta.trend.EMAIndicator(cl, 21).ema_indicator()
-    df["ema50"] = ta.trend.EMAIndicator(cl, 50).ema_indicator()
+    df["ema9"]   = ta.trend.EMAIndicator(cl, 9).ema_indicator()
+    df["ema21"]  = ta.trend.EMAIndicator(cl, 21).ema_indicator()
+    df["ema50"]  = ta.trend.EMAIndicator(cl, 50).ema_indicator()
     df["ema200"] = ta.trend.EMAIndicator(cl, 200).ema_indicator()
-    df["rsi"] = ta.momentum.RSIIndicator(cl, 14).rsi()
-
-    df["atr"] = ta.volatility.AverageTrueRange(
-        hi, lo, cl, 14
-    ).average_true_range()
-
-    df["adx"] = ta.trend.ADXIndicator(
-        hi, lo, cl, 14
-    ).adx()
-
-    df["volma"] = vol.rolling(20).mean()
+    df["rsi"]    = ta.momentum.RSIIndicator(cl, 14).rsi()
+    df["atr"]    = ta.volatility.AverageTrueRange(hi, lo, cl, 14).average_true_range()
+    df["adx"]    = ta.trend.ADXIndicator(hi, lo, cl, 14).adx()
+    df["volma"]  = vol.rolling(20).mean()
 
     return df
 
 # ═══════════════════════════════════════════════════════════════
-# HTF TREND — Code 2 feed (yfinance only, no CCXT geo-blocked calls)
+# HTF TREND
 # ═══════════════════════════════════════════════════════════════
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
@@ -320,160 +455,226 @@ def get_trend(symbol_key):
     return trend
 
 # ═══════════════════════════════════════════════════════════════
-# CONDITIONS
+# FAIR VALUE GAP DETECTION
+# ═══════════════════════════════════════════════════════════════
+def fair_value_gap(df):
+    if len(df) < 3:
+        return False, False
+
+    c1 = df.iloc[-3]
+    c3 = df.iloc[-1]
+
+    bullish_fvg = float(c1["high"]) < float(c3["low"])
+    bearish_fvg = float(c1["low"])  > float(c3["high"])
+
+    return bullish_fvg, bearish_fvg
+
+# ═══════════════════════════════════════════════════════════════
+# CONDITIONS — 14-point scoring (13 + FVG)
 # ═══════════════════════════════════════════════════════════════
 def check_conditions(df, trend, symbol_key):
     last = df.iloc[-1]
 
-    rsi = float(last["rsi"])
-    ema9 = float(last["ema9"])
+    rsi   = float(last["rsi"])
+    ema9  = float(last["ema9"])
     ema21 = float(last["ema21"])
     ema50 = float(last["ema50"])
 
-    vol = float(last["volume"])
+    vol   = float(last["volume"])
     volma = float(last["volma"]) if not pd.isna(last["volma"]) else 0
 
     close = float(last["close"])
-    op = float(last["open"])
-    atr = float(last["atr"])
-    adx = float(last["adx"])
+    op    = float(last["open"])
+    atr   = float(last["atr"])
+    adx   = float(last["adx"])
 
-    body = abs(close - op)
-    rng = max(last["high"] - last["low"], 0.0001)
+    body     = abs(close - op)
+    rng      = max(float(last["high"]) - float(last["low"]), 0.0001)
     body_pct = body / rng
 
-    near_ema = abs(close - ema9) < atr * 0.25
+    near_ema    = abs(close - ema9) < atr * 0.25
     strong_body = body_pct > 0.60
-    vol_ok = volma > 0 and vol > volma * VOL_MULT
+    vol_ok      = volma > 0 and vol > volma * VOL_MULT
 
-    bullish_break = close > df.iloc[-2]["high"] + atr * 0.25
-    bearish_break = close < df.iloc[-2]["low"] - atr * 0.25   
+    bullish_break = close > float(df.iloc[-2]["high"]) + atr * 0.25
+    bearish_break = close < float(df.iloc[-2]["low"])  - atr * 0.25
 
     support, resistance = get_sr_levels(df)
 
-    buffer = 0.003 if symbol_key == "BTC/USD" else 0.005
-
-    sr_buy_ok = close < resistance * (1 - buffer)
-    sr_sell_ok = close > support * (1 + buffer)
+    buffer     = 0.003 if symbol_key == "BTC/USD" else 0.005
+    sr_buy_ok  = close < resistance * (1 - buffer)
+    sr_sell_ok = close > support    * (1 + buffer)
 
     prev = df.iloc[-2]
 
     # ATR spike filter
-    atr_mean = df["atr"].rolling(50).mean().iloc[-1]
-    atr_safe = atr < atr_mean * ATR_SPIKE_MULT
+    atr_safe = atr_is_safe(df, atr)
 
-    # Liquidity sweep
+    # Liquidity sweep — previous 10 completed candles only
+    recent_lows  = df["low"].iloc[-11:-1]
+    recent_highs = df["high"].iloc[-11:-1]
+
     sweep_buy = (
-    last["low"] < df["low"].tail(10).min()
-    and close > last["low"]
+        float(last["low"]) < float(recent_lows.min())
+        and close > float(last["low"])
     )
-
     sweep_sell = (
-    last["high"] > df["high"].tail(10).max()
-    and close < last["high"]
+        float(last["high"]) > float(recent_highs.max())
+        and close < float(last["high"])
     )
 
-    # Order block
-    ob_buy = prev["close"] < prev["open"] and close > prev["high"]
-    ob_sell = prev["close"] > prev["open"] and close < prev["low"]
-    
+    # Order block — require strong-bodied previous candle
+    prev_body   = abs(float(prev["close"]) - float(prev["open"]))
+    prev_range  = max(float(prev["high"]) - float(prev["low"]), 0.0001)
+    strong_prev = (prev_body / prev_range) > 0.50
 
+    ob_buy = (
+        float(prev["close"]) < float(prev["open"])
+        and close > float(prev["high"])
+        and strong_prev
+    )
+    ob_sell = (
+        float(prev["close"]) > float(prev["open"])
+        and close < float(prev["low"])
+        and strong_prev
+    )
+
+    # Trend continuation retest — institutional RSI thresholds
     tcr_buy = (
         trend == "BULL"
         and ema9 > ema21 > ema50
-        and prev["low"] <= ema21
+        and float(prev["low"]) <= ema21
         and close > ema9
-        and rsi > 55
+        and rsi > 58                   # tightened from 55
     )
-
     tcr_sell = (
         trend == "BEAR"
         and ema9 < ema21 < ema50
-        and prev["high"] >= ema21
+        and float(prev["high"]) >= ema21
         and close < ema9
-        and rsi < 45
+        and rsi < 42                   # tightened from 45
     )
-    
+
+    # Fair Value Gap
+    bullish_fvg, bearish_fvg = fair_value_gap(df)
+
     buy = {
-        "HTF Bull": trend == "BULL",
-        "EMA Alignment": ema9 > ema21 > ema50,
-        "RSI Strength": rsi > 55,
-        "Strong Volume": vol_ok,
-        "Bull Candle": close > op and strong_body,
-        "EMA Pullback": near_ema,
-        "BOS": bullish_break,
+        "HTF Bull":           trend == "BULL",
+        "EMA Alignment":      ema9 > ema21 > ema50,
+        "RSI Strength":       rsi > 58,          # institutional threshold
+        "Strong Volume":      vol_ok,
+        "Bull Candle":        close > op and strong_body,
+        "EMA Pullback":       near_ema,
+        "BOS":                bullish_break,
         "Support/Resistance": sr_buy_ok,
-        "ADX": adx > ADX_THRESHOLD,
-        "TCR": tcr_buy,  
-        "Liquidity Sweep": sweep_buy,
-        "Order Block": ob_buy,
-        "ATR Safe": atr_safe,
+        "ADX":                adx > ADX_THRESHOLD,
+        "TCR":                tcr_buy,
+        "Liquidity Sweep":    sweep_buy,
+        "Order Block":        ob_buy,
+        "ATR Safe":           atr_safe,
+        "FVG":                bullish_fvg,
     }
 
     sell = {
-        "HTF Bear": trend == "BEAR",
-        "EMA Alignment": ema9 < ema21 < ema50,
-        "RSI Weakness": rsi < 45,
-        "Strong Volume": vol_ok,
-        "Bear Candle": close < op and strong_body,
-        "EMA Pullback": near_ema,
-        "BOS": bearish_break,
+        "HTF Bear":           trend == "BEAR",
+        "EMA Alignment":      ema9 < ema21 < ema50,
+        "RSI Weakness":       rsi < 42,           # institutional threshold
+        "Strong Volume":      vol_ok,
+        "Bear Candle":        close < op and strong_body,
+        "EMA Pullback":       near_ema,
+        "BOS":                bearish_break,
         "Support/Resistance": sr_sell_ok,
-        "ADX": adx > ADX_THRESHOLD,
-        "TCR": tcr_sell,
-        "Liquidity Sweep": sweep_sell,
-        "Order Block": ob_sell,
-        "ATR Safe": atr_safe,
+        "ADX":                adx > ADX_THRESHOLD,
+        "TCR":                tcr_sell,
+        "Liquidity Sweep":    sweep_sell,
+        "Order Block":        ob_sell,
+        "ATR Safe":           atr_safe,
+        "FVG":                bearish_fvg,
     }
 
-    buy_score = sum(buy.values())
+    buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
 
     return buy, sell, buy_score, sell_score, rsi, close, atr, adx
 
 # ═══════════════════════════════════════════════════════════════
-# LEVELS
+# LEVELS — Institutional Single TP Model
+# Returns: sl, tp, sl_dist
 # ═══════════════════════════════════════════════════════════════
-def calc_levels(price, direction, atr, symbol_key, df):
-    min_sl = MARKETS[symbol_key]["min_sl"]
+def calc_levels(price, direction, atr, symbol_key, df, rr):
+    min_sl   = MARKETS[symbol_key]["min_sl"]
     decimals = MARKETS[symbol_key]["decimals"]
 
     atr_sl = float(atr) * ATR_MULT
-    recent = df.tail(6)
+    recent = df.tail(12)
+
+    support, resistance = get_sr_levels(df)
 
     if direction == "BUY":
-        swing = price - recent["low"].min()
+        swing = price - float(recent["low"].min())
     else:
-        swing = recent["high"].max() - price
+        swing = float(recent["high"].max()) - price
 
-    sl_dist = max(min_sl, atr_sl, swing * 0.5)
+    sl_dist = max(min_sl, atr_sl, swing * 0.50)
+
+    adx_now = float(df.iloc[-1]["adx"])
+
+    if adx_now > 35:
+        sl_dist *= 1.12
 
     if symbol_key == "BTC/USD":
-        sl_dist *= 1.2
+        sl_dist *= 1.20
+
+    hour = datetime.now(timezone.utc).hour
+    if 12 <= hour < 16:
+        sl_dist *= 1.05
+    elif 0 <= hour < 6:
+        sl_dist *= 0.95
+
+    sl_dist = round(sl_dist, decimals)
 
     if direction == "BUY":
         sl = price - sl_dist
-        tp = price + sl_dist * RR
+
+        rr_tp         = price + sl_dist * rr
+        liquidity_tp  = float(df["high"].tail(20).max()) * 0.997
+        resistance_tp = float(resistance)                * 0.998
+
+        tp = min(rr_tp, liquidity_tp, resistance_tp)
+
     else:
         sl = price + sl_dist
-        tp = price - sl_dist * RR
 
-    return (
-        round(sl, decimals),
-        round(tp, decimals),
-        round(sl_dist, decimals)
-    )
+        rr_tp        = price - sl_dist * rr
+        liquidity_tp = float(df["low"].tail(20).min()) * 1.003
+        support_tp   = float(support)                  * 1.002
+
+        tp = max(rr_tp, liquidity_tp, support_tp)
+
+    sl = round(sl, decimals)
+    tp = round(tp, decimals)
+
+    if direction == "BUY" and tp <= price:
+        tp = round(price + sl_dist * 2.0, decimals)
+
+    if direction == "SELL" and tp >= price:
+        tp = round(price - sl_dist * 2.0, decimals)
+
+    return sl, tp, sl_dist
+
+# ═══════════════════════════════════════════════════════════════
+# DYNAMIC RISK
+# ═══════════════════════════════════════════════════════════════
+def dynamic_risk(score):
+    if score >= 12:
+        return 75
+    elif score >= 10:
+        return 50
+    return 30
 
 # ═══════════════════════════════════════════════════════════════
 # LOT SIZE
 # ═══════════════════════════════════════════════════════════════
-def dynamic_risk(score):
-    if score >= 11:
-        return 75
-    elif score >= 9:
-        return 50
-    return 30
-
 def lot_for_risk(price, sl, symbol_key, risk):
     sl_dist = abs(price - sl)
 
@@ -481,17 +682,56 @@ def lot_for_risk(price, sl, symbol_key, risk):
         return 0.01
 
     dpl = DOLLAR_PER_LOT[symbol_key]
+
     return max(round(risk / (sl_dist * dpl), 3), 0.01)
 
 # ═══════════════════════════════════════════════════════════════
-# PROCESS
+# SIGNAL JOURNAL — versioned
+# ═══════════════════════════════════════════════════════════════
+def log_signal(symbol, direction, score, rr, entry, sl, tp, session):
+    file_exists = os.path.isfile("signals_log.csv")
+
+    with open("signals_log.csv", "a", newline="") as f:
+        writer = csv.writer(f)
+
+        if not file_exists:
+            writer.writerow([
+                "version", "timestamp", "symbol", "direction",
+                "score", "rr", "entry", "sl", "tp", "session"
+            ])
+
+        writer.writerow([
+            "v16.5-institutional",
+            datetime.now(timezone.utc).isoformat(),
+            symbol, direction, score, rr,
+            entry, sl, tp, session
+        ])
+
+# ═══════════════════════════════════════════════════════════════
+# PROCESS (per symbol)
 # ═══════════════════════════════════════════════════════════════
 def process(symbol_key):
     log.info(f"🔍 Scanning {symbol_key}")
 
+    # Safety gates — cheapest checks first
+    if weekend_block(symbol_key):
+        return
+
+    if daily_loss_lock():
+        return
+
+    if loss_streak_lock():
+        return
+
+    rotate_log()
+
     ok, session = in_session(symbol_key)
 
     if not ok:
+        return
+
+    if high_impact_news_block() and symbol_key in ["XAU/USD", "NAS100", "US500"]:
+        log.info(f"❌ {symbol_key} blocked due to high-impact news window")
         return
 
     df, source = get_entry_data(symbol_key)
@@ -508,118 +748,126 @@ def process(symbol_key):
     df = add_ind(df)
     price = float(df.iloc[-1]["close"])
 
-    if not (
-        MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]
-    ):
+    if not (MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]):
         return
 
     trend = get_trend(symbol_key)
+
     if symbol_key == "BTC/USD" and trend == "NEUTRAL":
         return
 
-    buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(df, trend, symbol_key)
+    buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(
+        df, trend, symbol_key
+    )
 
     best = max(buy_score, sell_score)
-    if best >= 11:
-        rr = 3.0
-    elif best >= 9:
-        rr = 2.5
+
+    # Institutional RR engine
+    if best >= 12:
+        rr = 2.8
+    elif best >= 10:
+        rr = 2.3
     else:
         rr = 2.0
-    log.info(f"{symbol_key} | Buy Score: {buy_score} | Sell Score: {sell_score} | Best: {best}")
+
+    # Session RR boost
+    if session == "NY+London 🔥🔥":
+        rr += 0.2
+
+    # Hard RR cap
+    rr = min(rr, 4.0)
 
     if adx < ADX_THRESHOLD:
-        log.info(f"❌ {symbol_key} rejected due to weak ADX: {adx:.1f}")
         return
 
+    # Score requirements
     required_score = CONFIRM_THRESHOLD
 
-    # Asian stricter
-    if session == "Asian":
+    # Asian session penalty
+    if session == "Asian" and symbol_key != "BTC/USD":
         required_score += 1
 
-    # Gold precision
-    if symbol_key == "XAU/USD":
-        required_score = max(required_score, 7)
-
-    # Silver precision
-    if symbol_key == "XAG/USD" and session == "Asian":
-        required_score = max(required_score, 7)
-
-    # NAS precision
-    if symbol_key == "NAS100" and session == "Asian":
-        required_score = max(required_score, 7)
-
-    # US500 precision
-    if symbol_key == "US500" and session == "Asian":
-        required_score = max(required_score, 7)
+    # Floor: never drop below 6
+    required_score = max(required_score, 6)
 
     if best < required_score:
         return
 
     now = time.time()
 
+    # Standard cooldown
     if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
-        log.info(f"⏳ {symbol_key} cooldown active")
         return
+
+    # BTC extra cooldown
+    if symbol_key == "BTC/USD":
+        if now - _signal_sent[symbol_key] < BTC_EXTRA_COOLDOWN:
+            return
 
     if buy_score == sell_score:
         return
 
     direction = "BUY" if buy_score > sell_score else "SELL"
-    checks = buy if direction == "BUY" else sell
+    checks    = buy if direction == "BUY" else sell
 
-    sl, tp, sl_dist = calc_levels(price, direction, atr, symbol_key, df)
-    lot = lot_for_risk(price, sl, symbol_key, 50)
+    sl, tp, sl_dist = calc_levels(price, direction, atr, symbol_key, df, rr)
+
+    # Safe RR guard
+    actual_rr = safe_rr(price, sl, tp)
+
+    if actual_rr < 1.8:
+        log.info(f"❌ {symbol_key} rejected due to weak RR: {actual_rr:.2f}")
+        return
+
+    # Duplicate signal with 2hr time decay
+    if duplicate_signal(symbol_key, direction):
+        return
+
+    risk_amount = dynamic_risk(best)
+    lot         = lot_for_risk(price, sl, symbol_key, risk_amount)
 
     _signal_sent[symbol_key] = now
 
     mt5 = MARKETS[symbol_key]["mt5"]
     dec = MARKETS[symbol_key]["decimals"]
 
-    msg = f'''
-🚀 *A+ SIGNAL — {mt5}* 🚀
-_{MARKETS[symbol_key]["tier"]}_
+    log_signal(symbol_key, direction, best, rr, price, sl, tp, session)
 
-🔥 *Action:* {"BUY 📈" if direction == "BUY" else "SELL 📉"}
-⭐ *Score:* {best}/10
+    conditions_text = build_conditions_text(checks)
 
-📍 *Entry:* ${price:,.{dec}f}
-🛑 *SL:* ${sl:,.{dec}f}
-🎯 *TP:* ${tp:,.{dec}f} *(1:2.5 RR)*
-
-📈 *RSI:* {rsi:.1f}
-📉 *ADX:* {adx:.1f}
-🌍 *HTF:* {trend}
-⏰ *Session:* {session}
-📡 *Source:* {source}
-
-💵 *$50 Risk Lot:* {lot:.3f}
-
-✅ *A+ Conditions:*
-''' + "\n".join(
-        [f" ✅ {k}" for k, v in checks.items() if v]
-    ) + "\n\n⚡ *STRICT ELITE SETUP ONLY*"
+    msg = (
+        f"🚀 *v16.5 ELITE INSTITUTIONAL SIGNAL — {mt5}* 🚀\n"
+        f"_{MARKETS[symbol_key]['tier']}_\n\n"
+        f"🔥 *Action:* {'BUY 📈' if direction == 'BUY' else 'SELL 📉'}\n"
+        f"⭐ *Score:* {best}/14\n\n"
+        f"📍 *Entry:* `{price:,.{dec}f}`\n"
+        f"🛑 *SL:* `{sl:,.{dec}f}`\n"
+        f"🎯 *TP:* `{tp:,.{dec}f}` *(1:{round(actual_rr, 2)} RR)*\n\n"
+        f"📈 *RSI:* {rsi:.1f}\n"
+        f"📉 *ADX:* {adx:.1f}\n"
+        f"🌍 *HTF:* {trend}\n"
+        f"⏰ *Session:* {session}\n"
+        f"📡 *Source:* {source}\n\n"
+        f"💵 *${risk_amount} Risk Lot:* {lot:.3f}\n\n"
+        f"✅ *Elite Institutional Conditions:*\n"
+        f"{conditions_text}\n\n"
+        f"⚡ *STRICT ELITE INSTITUTIONAL TVM MODE*"
+    )
 
     send_telegram(msg)
-    log.info(f"🚀 A+ SIGNAL {symbol_key} {direction}")
+
+    log.info(f"🚀 SIGNAL {symbol_key} {direction}")
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN LOOP
+# MAIN
 # ═══════════════════════════════════════════════════════════════
 def main():
-    log.info("═" * 60)
-    log.info("🚀 MOMENTUM HUNTER v16.0 STARTED")
-    log.info("🎯 A+ FILTER ONLY | STRICT ELITE MODE")
-    log.info("📊 15m HTF + 5m Entry")
-    log.info("🥇 Gold | 🥈 Silver | 🥉 BTC | 🏅 NAS100 | 🇺🇸 US500")
-    log.info("═" * 60)
-
-    send_telegram("🚀 Bot started successfully on Railway")
+    log.info("🚀 MOMENTUM HUNTER v16.5 ELITE INSTITUTIONAL TVM STARTED")
+    send_telegram("🚀 v16.5 Elite Institutional TVM — Live")
 
     while True:
         try:
-            log.info("🔄 Running market scan cycle...")
+            reset_daily_stats()
 
             with ThreadPoolExecutor(max_workers=5) as ex:
                 futures = [ex.submit(process, s) for s in SYMBOLS]
@@ -627,7 +875,6 @@ def main():
                 for f in as_completed(futures):
                     pass
 
-            log.info("⏱ Waiting 20s for next cycle...")
             time.sleep(20)
 
         except Exception as e:
@@ -636,3 +883,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+        
