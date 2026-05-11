@@ -1,20 +1,24 @@
+Full v17.0 code with all patches merged:
+
 # ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE MOMENTUM HUNTER v16.5 — ELITE INSTITUTIONAL TVM
-# ADVANCED HYBRID ENGINE PATCH
+# PEPPERSTONE MOMENTUM HUNTER v17.0 — INSTITUTIONAL PRECISION
+# ADVANCED HYBRID ENGINE — FULLY LOADED
 # ✔ Market Regime Detection  ✔ Adaptive Scoring
 # ✔ Reversal Signal Module   ✔ Breakout Signal Module
 # ✔ CHOCH Reversal           ✔ Rejection Wick
 # ✔ Support Bounce           ✔ Resistance Reject
-# ✔ Fair Value Gap           ✔ Adaptive RR
-# ✔ Dynamic Risk             ✔ ICT / TVM Kill Zones
-# ✔ Session Precision        ✔ 5 Market Elite Build
-# ✔ Single TP (SR/Liq)       ✔ Trade Journal (versioned)
-# ✔ News Blackout            ✔ Weekend Filter
-# ✔ Daily Loss Lock          ✔ Loss Streak Breaker
-# ✔ Daily Auto-Reset         ✔ Trade Result Tracking
-# ✔ Duplicate Signal Decay   ✔ CSV Rotation
-# ✔ BTC Overtrading Guard    ✔ Telegram Retry
-# ✔ Asian Session Penalty    ✔ Avg Spread Proxy
+# ✔ Fair Value Gap           ✔ Precision Entry Zones
+# ✔ Adaptive RR              ✔ Dynamic Risk
+# ✔ ICT / TVM Kill Zones     ✔ Session Precision
+# ✔ 5 Market Elite Build     ✔ Single TP (SR/Liq)
+# ✔ Trade Journal            ✔ News Blackout
+# ✔ Weekend Filter           ✔ Daily Loss Lock
+# ✔ Loss Streak Breaker      ✔ Daily Auto-Reset
+# ✔ Trade Result Tracking    ✔ Duplicate Signal Decay
+# ✔ CSV Rotation             ✔ BTC Overtrading Guard
+# ✔ Telegram Retry           ✔ VPS Watchdog
+# ✔ Dashboard Logging        ✔ Execute Trade Placeholder
+# ✔ PnL Sync Placeholder
 # ═══════════════════════════════════════════════════════════════
 
 import time
@@ -29,6 +33,8 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
+SYSTEM_VERSION = "v17.0-INSTITUTIONAL-PRECISION"
+
 # ═══════════════════════════════════════════════════════════════
 # LOGGING
 # ═══════════════════════════════════════════════════════════════
@@ -37,10 +43,14 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v16.5-hybrid")
+log = logging.getLogger("v17.0-institutional")
 
 # ═══════════════════════════════════════════════════════════════
-# TELEGRAM
+# TELEGRAM — credentials via environment variables
+# Linux:   export TOKEN="your_token"
+#          export CHAT_ID="your_chat_id"
+# Windows: set TOKEN=your_token
+#          set CHAT_ID=your_chat_id
 # ═══════════════════════════════════════════════════════════════
 TOKEN = os.getenv("TOKEN", "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
@@ -118,7 +128,7 @@ MARKETS = {
 SYMBOLS = list(MARKETS.keys())
 
 # ═══════════════════════════════════════════════════════════════
-# SETTINGS — Advanced Hybrid Engine
+# SETTINGS — v17.0 Institutional Precision
 # ═══════════════════════════════════════════════════════════════
 RR                 = 3.2
 ATR_MULT           = 0.42
@@ -133,6 +143,8 @@ BTC_EXTRA_COOLDOWN = 1200
 TREND_WEIGHT       = 1.25
 REVERSAL_WEIGHT    = 1.15
 BREAKOUT_WEIGHT    = 1.20
+PRECISION_WEIGHT   = 1.35
+
 RANGE_ADX_LIMIT    = 18
 TREND_ADX_LIMIT    = 25
 EXTREME_ADX_LIMIT  = 35
@@ -162,32 +174,79 @@ _htf_cache             = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
 _last_signal_direction = {}
 _last_signal_time      = {}
 
+
 # ═══════════════════════════════════════════════════════════════
 # DAILY AUTO-RESET
 # ═══════════════════════════════════════════════════════════════
 def reset_daily_stats():
     global daily_pnl, consecutive_losses, last_reset_day
-
     current_day = datetime.now(timezone.utc).day
-
     if current_day != last_reset_day:
         daily_pnl          = 0
         consecutive_losses = 0
         last_reset_day     = current_day
         log.info("Daily stats reset")
 
+
 # ═══════════════════════════════════════════════════════════════
 # TRADE RESULT TRACKER
 # ═══════════════════════════════════════════════════════════════
 def update_trade_result(pnl):
     global daily_pnl, consecutive_losses
-
     daily_pnl += pnl
-
     if pnl < 0:
         consecutive_losses += 1
     else:
         consecutive_losses = 0
+
+
+# ═══════════════════════════════════════════════════════════════
+# PNL SYNC PLACEHOLDER
+# Replace with broker account history sync
+# ═══════════════════════════════════════════════════════════════
+def sync_real_pnl():
+    try:
+        return daily_pnl
+    except:
+        return daily_pnl
+
+
+# ═══════════════════════════════════════════════════════════════
+# VPS WATCHDOG
+# ═══════════════════════════════════════════════════════════════
+def watchdog():
+    try:
+        with open("heartbeat.txt", "w") as f:
+            f.write(str(time.time()))
+    except Exception as e:
+        log.error(f"Watchdog failure: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# DASHBOARD LOG
+# ═══════════════════════════════════════════════════════════════
+def dashboard_log(symbol, direction, score, regime, rr):
+    log.info(
+        f"[DASHBOARD] {symbol} | {direction} | "
+        f"Score: {score} | Regime: {regime} | RR: {rr}"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# EXECUTE TRADE PLACEHOLDER
+# Replace with MetaTrader5 order_send()
+# ═══════════════════════════════════════════════════════════════
+def execute_trade(symbol_key, direction, lot, entry, sl, tp):
+    try:
+        log.info(
+            f"EXECUTING {symbol_key} {direction} | "
+            f"Lot {lot} | Entry {entry} | SL {sl} | TP {tp}"
+        )
+        return True
+    except Exception as e:
+        log.error(f"Execution failed: {e}")
+        return False
+
 
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM WITH RETRY
@@ -206,12 +265,11 @@ def send_telegram(msg):
             )
             log.info(f"Telegram sent | {r.text}")
             return True
-
         except Exception as e:
             log.error(f"Telegram error attempt {attempt + 1}: {e}")
             time.sleep(2)
-
     return False
+
 
 # ═══════════════════════════════════════════════════════════════
 # SESSION / TVM
@@ -219,17 +277,14 @@ def send_telegram(msg):
 def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
     s, e = MARKETS[symbol_key]["sessions"]
-
     if not (s == 0 and e == 23) and not (s <= h < e):
         return False, "Closed"
-
     if 12 <= h < 16:
         return True, "NY+London"
-
     if 7 <= h < 12:
         return True, "London"
-
     return True, "Asian"
+
 
 # ═══════════════════════════════════════════════════════════════
 # SAFETY GUARDS
@@ -240,12 +295,14 @@ def weekend_block(symbol_key):
         return True
     return False
 
+
 def daily_loss_lock():
     global daily_pnl
     if daily_pnl <= daily_loss_limit:
         log.info("Daily loss lock active")
         return True
     return False
+
 
 def loss_streak_lock():
     global consecutive_losses
@@ -254,29 +311,32 @@ def loss_streak_lock():
         return True
     return False
 
+
 def duplicate_signal(symbol_key, direction):
     now = time.time()
-
     if (
         _last_signal_direction.get(symbol_key) == direction
         and now - _last_signal_time.get(symbol_key, 0) < 7200
     ):
         log.info(f"Duplicate signal blocked for {symbol_key}")
         return True
-
     _last_signal_direction[symbol_key] = direction
     _last_signal_time[symbol_key]      = now
-
     return False
 
+
 # ═══════════════════════════════════════════════════════════════
-# NEWS BLACKOUT FILTER
+# ECONOMIC NEWS BLOCK
+# Replace body with real API when available
 # ═══════════════════════════════════════════════════════════════
-def high_impact_news_block():
-    h = datetime.now(timezone.utc).hour
-    if h in [12, 13, 14]:
-        return True
-    return False
+def economic_news_block():
+    try:
+        h = datetime.now(timezone.utc).hour
+        return h in [12, 13, 14]
+    except Exception as e:
+        log.error(f"Economic API failure: {e}")
+        return False
+
 
 # ═══════════════════════════════════════════════════════════════
 # CSV ROTATION
@@ -288,6 +348,7 @@ def rotate_log():
             new_name = f"signals_log_{int(time.time())}.csv"
             os.rename(file_path, new_name)
 
+
 # ═══════════════════════════════════════════════════════════════
 # SAFE RR CALCULATION
 # ═══════════════════════════════════════════════════════════════
@@ -296,6 +357,7 @@ def safe_rr(price, sl, tp):
     if risk_distance <= 0:
         return 0
     return abs(tp - price) / risk_distance
+
 
 # ═══════════════════════════════════════════════════════════════
 # ATR SAFE CHECK
@@ -306,16 +368,16 @@ def atr_is_safe(df, atr):
         return False
     return atr < atr_mean * ATR_SPIKE_MULT
 
+
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM MESSAGE LENGTH GUARD
 # ═══════════════════════════════════════════════════════════════
 def build_conditions_text(checks):
-    conditions_text = "\n".join(
-        [f" {k}" for k, v in checks.items() if v]
-    )
+    conditions_text = "\n".join([f" {k}" for k, v in checks.items() if v])
     if len(conditions_text) > 1200:
         conditions_text = conditions_text[:1200]
     return conditions_text
+
 
 # ═══════════════════════════════════════════════════════════════
 # DATA FETCH
@@ -323,85 +385,67 @@ def build_conditions_text(checks):
 def fetch_yf(ticker, period="15d", interval="5m"):
     try:
         raw = yf.download(
-            ticker,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=True
+            ticker, period=period, interval=interval,
+            progress=False, auto_adjust=True
         )
-
         if raw.empty:
             return None
-
         if isinstance(raw.columns, pd.MultiIndex):
             raw.columns = raw.columns.get_level_values(0)
-
         raw.columns = [str(c).lower() for c in raw.columns]
-
         return raw[["open", "high", "low", "close", "volume"]].reset_index(drop=True)
-
     except:
         return None
+
 
 def fetch_ccxt(src_name, sym, tf="5m", limit=300):
     try:
         exchange = getattr(ccxt, src_name)()
         ohlcv    = exchange.fetch_ohlcv(sym, timeframe=tf, limit=limit)
-
         return pd.DataFrame(
-            ohlcv,
-            columns=["time", "open", "high", "low", "close", "volume"]
+            ohlcv, columns=["time", "open", "high", "low", "close", "volume"]
         )
-
     except:
         return None
+
 
 def get_entry_data(symbol_key):
     if symbol_key == "BTC/USD":
         for src in ["coinbase", "binance"]:
             pair = "BTC/USDT" if src == "binance" else "BTC/USD"
             df   = fetch_ccxt(src, pair)
-
             if df is not None and len(df) > 100:
                 return df, src
-
     yf_sym = MARKETS[symbol_key]["yf"]
-
     if yf_sym:
         df = fetch_yf(yf_sym)
-
         if df is not None and len(df) > 100:
             return df, "yf"
-
     return None, None
+
 
 def get_htf(symbol_key):
     if symbol_key == "BTC/USD":
         for src in ["coinbase", "binance"]:
             pair = "BTC/USDT" if src == "binance" else "BTC/USD"
             df   = fetch_ccxt(src, pair, tf="15m", limit=300)
-
             if df is not None and len(df) > 100:
                 return df
-
     yf_sym = MARKETS[symbol_key]["yf"]
-
     if yf_sym:
         return fetch_yf(yf_sym, period="15d", interval="15m")
-
     return None
+
 
 def get_spread(df):
     if df is None or len(df) < 3:
         return 999
-
     recent    = df.tail(3)
     avg_range = (
-        recent["high"].astype(float) -
-        recent["low"].astype(float)
+        recent["high"].astype(float) - recent["low"].astype(float)
     ).mean()
-
     return avg_range * 0.18
+
 
 # ═══════════════════════════════════════════════════════════════
 # INDICATORS
@@ -412,13 +456,13 @@ def get_sr_levels(df, lookback=50):
         df["high"].tail(lookback).max()
     )
 
+
 def add_ind(df):
     df  = df.copy()
     cl  = pd.to_numeric(df["close"])
     hi  = pd.to_numeric(df["high"])
     lo  = pd.to_numeric(df["low"])
     vol = pd.to_numeric(df["volume"])
-
     df["ema9"]   = ta.trend.EMAIndicator(cl, 9).ema_indicator()
     df["ema21"]  = ta.trend.EMAIndicator(cl, 21).ema_indicator()
     df["ema50"]  = ta.trend.EMAIndicator(cl, 50).ema_indicator()
@@ -427,8 +471,8 @@ def add_ind(df):
     df["atr"]    = ta.volatility.AverageTrueRange(hi, lo, cl, 14).average_true_range()
     df["adx"]    = ta.trend.ADXIndicator(hi, lo, cl, 14).adx()
     df["volma"]  = vol.rolling(20).mean()
-
     return df
+
 
 # ═══════════════════════════════════════════════════════════════
 # HTF TREND
@@ -436,29 +480,23 @@ def add_ind(df):
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
     now   = time.time()
-
     if now - cache["ts"] < HTF_REFRESH:
         return cache["trend"]
-
     df = get_htf(symbol_key)
-
     if df is None or len(df) < 50:
         return "NEUTRAL"
-
     df   = add_ind(df)
     last = df.iloc[-1]
-
     if last["ema21"] > last["ema50"]:
         trend = "BULL"
     elif last["ema21"] < last["ema50"]:
         trend = "BEAR"
     else:
         trend = "NEUTRAL"
-
     cache["trend"] = trend
     cache["ts"]    = now
-
     return trend
+
 
 # ═══════════════════════════════════════════════════════════════
 # FAIR VALUE GAP
@@ -466,14 +504,12 @@ def get_trend(symbol_key):
 def fair_value_gap(df):
     if len(df) < 3:
         return False, False
-
     c1 = df.iloc[-3]
     c3 = df.iloc[-1]
-
     bullish_fvg = float(c1["high"]) < float(c3["low"])
     bearish_fvg = float(c1["low"])  > float(c3["high"])
-
     return bullish_fvg, bearish_fvg
+
 
 # ═══════════════════════════════════════════════════════════════
 # CHOCH REVERSAL DETECTION
@@ -481,15 +517,13 @@ def fair_value_gap(df):
 def detect_choch(df):
     if len(df) < 6:
         return False, False
-
     highs = df["high"].tail(6).tolist()
     lows  = df["low"].tail(6).tolist()
     close = float(df.iloc[-1]["close"])
-
     bullish_choch = lows[-2] < lows[-3] and close > highs[-2]
     bearish_choch = highs[-2] > highs[-3] and close < lows[-2]
-
     return bullish_choch, bearish_choch
+
 
 # ═══════════════════════════════════════════════════════════════
 # REJECTION WICK DETECTION
@@ -500,15 +534,49 @@ def rejection_wick(df):
     low   = float(last["low"])
     open_ = float(last["open"])
     close = float(last["close"])
-
     body       = abs(close - open_)
     upper_wick = high - max(close, open_)
     lower_wick = min(close, open_) - low
-
     bullish_rejection = lower_wick > body * 1.5
     bearish_rejection = upper_wick > body * 1.5
-
     return bullish_rejection, bearish_rejection
+
+
+# ═══════════════════════════════════════════════════════════════
+# PREVIOUS CANDLE PRECISION ZONES
+# ═══════════════════════════════════════════════════════════════
+def previous_candle_zones(df):
+    if len(df) < 2:
+        return None
+    prev       = df.iloc[-2]
+    prev_open  = float(prev["open"])
+    prev_close = float(prev["close"])
+    prev_high  = float(prev["high"])
+    prev_low   = float(prev["low"])
+    body_high  = max(prev_open, prev_close)
+    body_low   = min(prev_open, prev_close)
+    return {
+        "body_high": body_high,
+        "body_low":  body_low,
+        "high":      prev_high,
+        "low":       prev_low,
+        "bullish":   prev_close > prev_open,
+        "bearish":   prev_close < prev_open,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# PRECISION ENTRY ENGINE
+# ═══════════════════════════════════════════════════════════════
+def precision_entry(df, symbol_key):
+    zones = previous_candle_zones(df)
+    if not zones:
+        return False, False
+    close = float(df.iloc[-1]["close"])
+    precision_buy  = zones["bullish"] and close <= zones["body_low"]  * 1.002
+    precision_sell = zones["bearish"] and close >= zones["body_high"] * 0.998
+    return precision_buy, precision_sell
+
 
 # ═══════════════════════════════════════════════════════════════
 # MARKET REGIME DETECTION
@@ -520,15 +588,14 @@ def detect_market_regime(df):
     ema21   = float(last["ema21"])
     atr     = float(last["atr"])
     ema_gap = abs(ema9 - ema21)
-
     if adx >= TREND_ADX_LIMIT and ema_gap > atr * 0.15:
         return "TREND"
     elif adx <= RANGE_ADX_LIMIT:
         return "RANGE"
     elif adx >= EXTREME_ADX_LIMIT:
         return "BREAKOUT"
-
     return "MIXED"
+
 
 # ═══════════════════════════════════════════════════════════════
 # REVERSAL SIGNAL MODULE
@@ -537,13 +604,11 @@ def reversal_signal(df, symbol_key):
     last  = df.iloc[-1]
     rsi   = float(last["rsi"])
     close = float(last["close"])
-
     support, resistance = get_sr_levels(df)
-
     buy_reversal  = rsi < 32 and close <= float(support)    * 1.003
     sell_reversal = rsi > 68 and close >= float(resistance) * 0.997
-
     return buy_reversal, sell_reversal
+
 
 # ═══════════════════════════════════════════════════════════════
 # BREAKOUT SIGNAL MODULE
@@ -554,7 +619,6 @@ def breakout_signal(df):
     atr   = float(last["atr"])
     vol   = float(last["volume"])
     volma = float(last["volma"]) if not pd.isna(last["volma"]) else 0
-
     bullish = (
         float(last["close"]) > float(prev["high"]) + atr * 0.35
         and vol > volma * 1.30
@@ -563,11 +627,11 @@ def breakout_signal(df):
         float(last["close"]) < float(prev["low"]) - atr * 0.35
         and vol > volma * 1.30
     )
-
     return bullish, bearish
 
+
 # ═══════════════════════════════════════════════════════════════
-# CONDITIONS — 17-point base scoring
+# CONDITIONS — 20-point scoring (17 + Precision Zone)
 # ═══════════════════════════════════════════════════════════════
 def check_conditions(df, trend, symbol_key):
     last  = df.iloc[-1]
@@ -594,13 +658,11 @@ def check_conditions(df, trend, symbol_key):
     bearish_break = close < float(df.iloc[-2]["low"])  - atr * 0.25
 
     support, resistance = get_sr_levels(df)
-
     buffer     = 0.003 if symbol_key == "BTC/USD" else 0.005
     sr_buy_ok  = close < resistance * (1 - buffer)
     sr_sell_ok = close > support    * (1 + buffer)
 
-    prev = df.iloc[-2]
-
+    prev     = df.iloc[-2]
     atr_safe = atr_is_safe(df, atr)
 
     recent_lows  = df["low"].iloc[-11:-1]
@@ -648,6 +710,7 @@ def check_conditions(df, trend, symbol_key):
     bullish_fvg,   bearish_fvg   = fair_value_gap(df)
     bullish_choch, bearish_choch = detect_choch(df)
     bullish_wick,  bearish_wick  = rejection_wick(df)
+    precision_buy, precision_sell = precision_entry(df, symbol_key)
 
     support_bounce    = close <= float(support)    * 1.003
     resistance_reject = close >= float(resistance) * 0.997
@@ -670,6 +733,7 @@ def check_conditions(df, trend, symbol_key):
         "CHOCH":              bullish_choch,
         "Support Bounce":     support_bounce,
         "Rejection Wick":     bullish_wick,
+        "Precision Zone":     precision_buy,
     }
 
     sell = {
@@ -690,12 +754,14 @@ def check_conditions(df, trend, symbol_key):
         "CHOCH":              bearish_choch,
         "Resistance Reject":  resistance_reject,
         "Rejection Wick":     bearish_wick,
+        "Precision Zone":     precision_sell,
     }
 
     buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
 
     return buy, sell, buy_score, sell_score, rsi, close, atr, adx
+
 
 # ═══════════════════════════════════════════════════════════════
 # ADAPTIVE SCORING ENGINE
@@ -707,8 +773,8 @@ def adaptive_score(df, trend, symbol_key):
 
     regime = detect_market_regime(df)
 
-    rev_buy,  rev_sell  = reversal_signal(df, symbol_key)
-    bo_buy,   bo_sell   = breakout_signal(df)
+    rev_buy, rev_sell = reversal_signal(df, symbol_key)
+    bo_buy,  bo_sell  = breakout_signal(df)
 
     if regime == "TREND":
         buy_score  *= TREND_WEIGHT
@@ -726,7 +792,7 @@ def adaptive_score(df, trend, symbol_key):
         if bo_sell:
             sell_score += 4 * BREAKOUT_WEIGHT
 
-    else:  # MIXED
+    else:
         if rev_buy:
             buy_score  += 2
         if rev_sell:
@@ -747,6 +813,7 @@ def adaptive_score(df, trend, symbol_key):
         adx,
         regime
     )
+
 
 # ═══════════════════════════════════════════════════════════════
 # LEVELS — Single TP Model
@@ -803,6 +870,7 @@ def calc_levels(price, direction, atr, symbol_key, df, rr):
 
     return sl, tp, sl_dist
 
+
 # ═══════════════════════════════════════════════════════════════
 # DYNAMIC RISK
 # ═══════════════════════════════════════════════════════════════
@@ -812,6 +880,7 @@ def dynamic_risk(score):
     elif score >= 11:
         return 45
     return 25
+
 
 # ═══════════════════════════════════════════════════════════════
 # LOT SIZE
@@ -823,27 +892,26 @@ def lot_for_risk(price, sl, symbol_key, risk):
     dpl = DOLLAR_PER_LOT[symbol_key]
     return max(round(risk / (sl_dist * dpl), 3), 0.01)
 
+
 # ═══════════════════════════════════════════════════════════════
 # SIGNAL JOURNAL
 # ═══════════════════════════════════════════════════════════════
 def log_signal(symbol, direction, score, rr, entry, sl, tp, session, regime):
     file_exists = os.path.isfile("signals_log.csv")
-
     with open("signals_log.csv", "a", newline="") as f:
         writer = csv.writer(f)
-
         if not file_exists:
             writer.writerow([
                 "version", "timestamp", "symbol", "direction",
                 "score", "rr", "entry", "sl", "tp", "session", "regime"
             ])
-
         writer.writerow([
-            "v16.5-hybrid-engine",
+            SYSTEM_VERSION,
             datetime.now(timezone.utc).isoformat(),
             symbol, direction, score, rr,
             entry, sl, tp, session, regime
         ])
+
 
 # ═══════════════════════════════════════════════════════════════
 # PROCESS (per symbol)
@@ -858,13 +926,14 @@ def process(symbol_key):
     if loss_streak_lock():
         return
 
+    watchdog()
     rotate_log()
 
     ok, session = in_session(symbol_key)
     if not ok:
         return
 
-    if high_impact_news_block() and symbol_key in ["XAU/USD", "NAS100", "US500"]:
+    if economic_news_block() and symbol_key in ["XAU/USD", "NAS100", "US500"]:
         log.info(f"BLOCKED {symbol_key} news window")
         return
 
@@ -894,8 +963,7 @@ def process(symbol_key):
         df, trend, symbol_key
     )
 
-    best_direction = "BUY" if buy_score >= sell_score else "SELL"
-    best           = max(buy_score, sell_score)
+    best = max(buy_score, sell_score)
 
     log.info(
         f"{symbol_key} | Regime: {regime} | "
@@ -903,7 +971,6 @@ def process(symbol_key):
         f"RSI {rsi:.1f} | ADX {adx:.1f}"
     )
 
-    # Adaptive RR based on score
     if best >= 13:
         rr = 4.0
     elif best >= 11:
@@ -913,7 +980,6 @@ def process(symbol_key):
     else:
         rr = 2.4
 
-    # Regime RR boost
     if regime == "BREAKOUT":
         rr += 0.5
     elif regime == "TREND":
@@ -979,15 +1045,19 @@ def process(symbol_key):
     mt5_sym = MARKETS[symbol_key]["mt5"]
     dec     = MARKETS[symbol_key]["decimals"]
 
+    dashboard_log(symbol_key, direction, best, regime, rr)
     log_signal(symbol_key, direction, best, rr, price, sl, tp, session, regime)
+    execute_trade(symbol_key, direction, lot, price, sl, tp)
+
+    daily_pnl_synced = sync_real_pnl()
 
     conditions_text = build_conditions_text(checks)
 
     msg = (
-        f"*v16.5 HYBRID ENGINE — {mt5_sym}*\n"
-        f"_{MARKETS[symbol_key]['tier']}_\n\n"
+        f"*{SYSTEM_VERSION}*\n"
+        f"*{mt5_sym}* | {MARKETS[symbol_key]['tier']}\n\n"
         f"*Action:* {'BUY' if direction == 'BUY' else 'SELL'}\n"
-        f"*Score:* {best}/17+\n"
+        f"*Score:* {best}\n"
         f"*Regime:* {regime}\n\n"
         f"*Entry:* `{price:,.{dec}f}`\n"
         f"*SL:* `{sl:,.{dec}f}`\n"
@@ -1000,7 +1070,7 @@ def process(symbol_key):
         f"*${risk_amount} Risk Lot:* {lot:.3f}\n\n"
         f"*Conditions Passed:*\n"
         f"{conditions_text}\n\n"
-        f"HYBRID ADAPTIVE ENGINE ACTIVE"
+        f"INSTITUTIONAL PRECISION ENGINE ACTIVE"
     )
 
     send_telegram(msg)
@@ -1011,12 +1081,13 @@ def process(symbol_key):
         f"RR: {round(actual_rr, 2)} | Lot: {lot} | Regime: {regime}"
     )
 
+
 # ═══════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════
 def main():
-    log.info("MOMENTUM HUNTER v16.5 HYBRID ENGINE STARTED")
-    send_telegram("v16.5 Advanced Hybrid Engine Live")
+    log.info(f"MOMENTUM HUNTER {SYSTEM_VERSION} STARTED")
+    send_telegram(f"{SYSTEM_VERSION} Live")
 
     while True:
         try:
@@ -1032,6 +1103,7 @@ def main():
         except Exception as e:
             log.error(f"Main loop error: {e}")
             time.sleep(15)
+
 
 if __name__ == "__main__":
     main()
