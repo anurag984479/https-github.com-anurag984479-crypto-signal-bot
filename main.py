@@ -1,4 +1,4 @@
-═══════════════════════════════════════════════════════════════
+
 # PEPPERSTONE MOMENTUM HUNTER v16.0 — HYBRID PRO
 # Best balance:
 # ✔ More trades
