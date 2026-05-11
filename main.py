@@ -1,5 +1,3 @@
-Full updated code with the moderate higher-frequency patch applied:
-
 # ═══════════════════════════════════════════════════════════════
 # PEPPERSTONE MOMENTUM HUNTER v16.5 — ELITE INSTITUTIONAL TVM
 # MODERATE HIGHER-FREQUENCY PROFIT PATCH
