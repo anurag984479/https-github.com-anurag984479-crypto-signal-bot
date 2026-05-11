@@ -13,6 +13,7 @@
 # ✔ Duplicate Signal Decay ✔ CSV Rotation
 # ✔ BTC Overtrading Guard  ✔ Telegram Retry
 # ✔ Asian Session Penalty  ✔ Avg Spread Proxy
+# ✔ Full Debug Logging
 # ═══════════════════════════════════════════════════════════════
 
 import time
@@ -40,8 +41,8 @@ log = logging.getLogger("v16.5-institutional")
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM
 # ═══════════════════════════════════════════════════════════════
-TOKEN = os.getenv("TOKEN","8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
-CHAT_ID = os.getenv("CHAT_ID","8783763018")
+TOKEN = os.getenv("TOKEN", "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
+CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
 if not TOKEN or not CHAT_ID:
     raise ValueError("Missing TOKEN or CHAT_ID")
@@ -507,10 +508,8 @@ def check_conditions(df, trend, symbol_key):
 
     prev = df.iloc[-2]
 
-    # ATR spike filter
     atr_safe = atr_is_safe(df, atr)
 
-    # Liquidity sweep — previous 10 completed candles only
     recent_lows  = df["low"].iloc[-11:-1]
     recent_highs = df["high"].iloc[-11:-1]
 
@@ -523,7 +522,6 @@ def check_conditions(df, trend, symbol_key):
         and close < float(last["high"])
     )
 
-    # Order block — require strong-bodied previous candle
     prev_body   = abs(float(prev["close"]) - float(prev["open"]))
     prev_range  = max(float(prev["high"]) - float(prev["low"]), 0.0001)
     strong_prev = (prev_body / prev_range) > 0.50
@@ -539,29 +537,27 @@ def check_conditions(df, trend, symbol_key):
         and strong_prev
     )
 
-    # Trend continuation retest — institutional RSI thresholds
     tcr_buy = (
         trend == "BULL"
         and ema9 > ema21 > ema50
         and float(prev["low"]) <= ema21
         and close > ema9
-        and rsi > 58                   # tightened from 55
+        and rsi > 58
     )
     tcr_sell = (
         trend == "BEAR"
         and ema9 < ema21 < ema50
         and float(prev["high"]) >= ema21
         and close < ema9
-        and rsi < 42                   # tightened from 45
+        and rsi < 42
     )
 
-    # Fair Value Gap
     bullish_fvg, bearish_fvg = fair_value_gap(df)
 
     buy = {
         "HTF Bull":           trend == "BULL",
         "EMA Alignment":      ema9 > ema21 > ema50,
-        "RSI Strength":       rsi > 58,          # institutional threshold
+        "RSI Strength":       rsi > 58,
         "Strong Volume":      vol_ok,
         "Bull Candle":        close > op and strong_body,
         "EMA Pullback":       near_ema,
@@ -578,7 +574,7 @@ def check_conditions(df, trend, symbol_key):
     sell = {
         "HTF Bear":           trend == "BEAR",
         "EMA Alignment":      ema9 < ema21 < ema50,
-        "RSI Weakness":       rsi < 42,           # institutional threshold
+        "RSI Weakness":       rsi < 42,
         "Strong Volume":      vol_ok,
         "Bear Candle":        close < op and strong_body,
         "EMA Pullback":       near_ema,
@@ -713,7 +709,6 @@ def log_signal(symbol, direction, score, rr, entry, sl, tp, session):
 def process(symbol_key):
     log.info(f"🔍 Scanning {symbol_key}")
 
-    # Safety gates — cheapest checks first
     if weekend_block(symbol_key):
         return
 
@@ -742,27 +737,38 @@ def process(symbol_key):
     spread = get_spread(df)
 
     if spread > MAX_SPREAD[symbol_key]:
-        log.info(f"❌ {symbol_key} rejected due to spread: {spread:.2f}")
+        log.info(f"❌ {symbol_key} rejected — spread {spread:.4f} > max {MAX_SPREAD[symbol_key]}")
         return
 
     df = add_ind(df)
     price = float(df.iloc[-1]["close"])
 
     if not (MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]):
+        log.info(f"❌ {symbol_key} rejected — price {price} out of range")
         return
 
     trend = get_trend(symbol_key)
 
     if symbol_key == "BTC/USD" and trend == "NEUTRAL":
+        log.info(f"❌ BTC/USD rejected — HTF trend NEUTRAL")
         return
 
     buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(
         df, trend, symbol_key
     )
 
+    # ═══════════════════════════════════════════════════════════
+    # DEBUG SCORING LOG
+    # ═══════════════════════════════════════════════════════════
+    log.info(
+        f"📊 {symbol_key} | BUY Score: {buy_score}/14 | SELL Score: {sell_score}/14 | "
+        f"RSI: {rsi:.1f} | ADX: {adx:.1f} | Trend: {trend} | Session: {session}"
+    )
+    log.info(f"📈 BUY  Passed: {[k for k, v in buy.items()  if v]}")
+    log.info(f"📉 SELL Passed: {[k for k, v in sell.items() if v]}")
+
     best = max(buy_score, sell_score)
 
-    # Institutional RR engine
     if best >= 12:
         rr = 2.8
     elif best >= 10:
@@ -770,41 +776,41 @@ def process(symbol_key):
     else:
         rr = 2.0
 
-    # Session RR boost
     if session == "NY+London 🔥🔥":
         rr += 0.2
 
-    # Hard RR cap
     rr = min(rr, 4.0)
 
     if adx < ADX_THRESHOLD:
+        log.info(f"❌ {symbol_key} rejected — ADX {adx:.1f} < {ADX_THRESHOLD}")
         return
 
-    # Score requirements
     required_score = CONFIRM_THRESHOLD
 
-    # Asian session penalty
     if session == "Asian" and symbol_key != "BTC/USD":
         required_score += 1
 
-    # Floor: never drop below 6
     required_score = max(required_score, 6)
 
     if best < required_score:
+        log.info(f"❌ {symbol_key} rejected — Score {best} < required {required_score}")
         return
 
     now = time.time()
 
-    # Standard cooldown
     if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
+        remaining = int(SIGNAL_COOLDOWN - (now - _signal_sent[symbol_key]))
+        log.info(f"❌ {symbol_key} rejected — cooldown {remaining}s remaining")
         return
 
-    # BTC extra cooldown
     if symbol_key == "BTC/USD":
         if now - _signal_sent[symbol_key] < BTC_EXTRA_COOLDOWN:
+            remaining = int(BTC_EXTRA_COOLDOWN - (now - _signal_sent[symbol_key]))
+            log.info(f"❌ BTC/USD rejected — BTC cooldown {remaining}s remaining")
             return
 
     if buy_score == sell_score:
+        log.info(f"❌ {symbol_key} rejected — tied score {buy_score}")
         return
 
     direction = "BUY" if buy_score > sell_score else "SELL"
@@ -812,14 +818,12 @@ def process(symbol_key):
 
     sl, tp, sl_dist = calc_levels(price, direction, atr, symbol_key, df, rr)
 
-    # Safe RR guard
     actual_rr = safe_rr(price, sl, tp)
 
     if actual_rr < 1.8:
-        log.info(f"❌ {symbol_key} rejected due to weak RR: {actual_rr:.2f}")
+        log.info(f"❌ {symbol_key} rejected — RR {actual_rr:.2f} < 1.8")
         return
 
-    # Duplicate signal with 2hr time decay
     if duplicate_signal(symbol_key, direction):
         return
 
@@ -856,7 +860,7 @@ def process(symbol_key):
 
     send_telegram(msg)
 
-    log.info(f"🚀 SIGNAL {symbol_key} {direction}")
+    log.info(f"🚀 SIGNAL SENT {symbol_key} {direction} | Entry: {price} | SL: {sl} | TP: {tp} | RR: {round(actual_rr, 2)} | Lot: {lot}")
 
 # ═══════════════════════════════════════════════════════════════
 # MAIN
@@ -883,5 +887,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-        
