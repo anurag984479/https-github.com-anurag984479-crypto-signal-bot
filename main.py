@@ -1,15 +1,8 @@
-# ═══════════════════════════════════════════════════════════════
-# PEPPERSTONE MOMENTUM HUNTER v16.0 — HYBRID PRO
-# Best balance:
-# ✔ More trades
-# ✔ Better gains
-# ✔ 5-year optimized
-# ✔ 1:2.5 RR
-# ✔ Strong BOS
-# ✔ Session filtering
-# ✔ Gold precision
-# ✔ BTC HTF mandatory
-# ═════════════════════════════════════════
+# ============================================================
+# PEPPERSTONE MOMENTUM HUNTER v20.0-HYBRID-INSTITUTIONAL-PRO
+# ENTRY PRECISION UPGRADE
+# ============================================================
+
 import time
 import logging
 import requests
@@ -17,209 +10,295 @@ import ccxt
 import pandas as pd
 import ta
 import os
+import csv
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
+SYSTEM_VERSION = "v20.0-HYBRID-INSTITUTIONAL-PRO"
 
-# ═══════════════════════════════════════════════════════════════
-# LOGGING
-# ═══════════════════════════════════════════════════════════════
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v16.0")
+log = logging.getLogger("v20.0")
 
-
-# ═══════════════════════════════════════════════════════════════
-# TELEGRAM
-# ═══════════════════════════════════════════════════════════════
-TOKEN = os.getenv("TOKEN", "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
+TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
-if not TOKEN or not CHAT_ID:
-    raise ValueError("Missing TOKEN or CHAT_ID environment variables")
-
-
-# ═══════════════════════════════════════════════════════════════
-# RISK CONFIG
-# ═══════════════════════════════════════════════════════════════
-DOLLAR_PER_LOT = {
-    "XAU/USD": 100.0,
-    "XAG/USD": 5000.0,
-    "BTC/USD": 1.0,
-    "NAS100": 10.0,
-    "US500": 10.0,
-}
-
-
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
 # MARKETS
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
 MARKETS = {
-    "XAU/USD": {
-        "mt5": "XAUUSD.Qraw",
-        "yf": "GC=F",
-        "price_lo": 4000,
-        "price_hi": 5500,
-        "sessions": [7, 20],
-        "decimals": 2,
-        "min_sl": 5.0,
-        "tier": "⭐⭐⭐⭐⭐ GOLD ELITE",
-        "win_rate": "90%"
-    },
-
-    "XAG/USD": {
-        "mt5": "XAGUSD.Qraw",
-        "yf": "SI=F",
-        "price_lo": 20,
-        "price_hi": 100,
-        "sessions": [7, 20],
-        "decimals": 3,
-        "min_sl": 0.25,
-        "tier": "⭐⭐⭐⭐⭐ SILVER ELITE",
-        "win_rate": "88%"
-    },
-
     "BTC/USD": {
-        "mt5": "BTCUSD.Qraw",
-        "yf": None,
+        "mt5":      "BTCUSD.Qraw",
+        "yf":       None,
         "price_lo": 50000,
-        "price_hi": 200000,
+        "price_hi": 150000,
         "sessions": [0, 23],
         "decimals": 2,
-        "min_sl": 120.0,
-        "tier": "⭐⭐⭐⭐⭐ BTC ELITE",
-        "win_rate": "87%"
+        "min_sl":   250.0,
+        "tier":     "BTC ELITE",
+        "bias":     "BULL",
     },
-
+    "XAU/USD": {
+        "mt5":      "XAUUSD.Qraw",
+        "yf":       "GC=F",
+        "price_lo": 4000,
+        "price_hi": 7000,
+        "sessions": [7, 20],
+        "decimals": 2,
+        "min_sl":   7.0,
+        "tier":     "GOLD ELITE",
+        "bias":     "BULL",
+    },
+    "XAG/USD": {
+        "mt5":      "XAGUSD.Qraw",
+        "yf":       "SI=F",
+        "price_lo": 28,
+        "price_hi": 60,
+        "sessions": [7, 20],
+        "decimals": 3,
+        "min_sl":   0.35,
+        "tier":     "SILVER ELITE",
+        "bias":     "BULL",
+    },
     "NAS100": {
-        "mt5": "NAS100",
-        "yf": "^NDX",
-        "price_lo": 10000,
-        "price_hi": 50000,
+        "mt5":      "NAS100",
+        "yf":       "^NDX",
+        "price_lo": 15000,
+        "price_hi": 28000,
         "sessions": [13, 21],
         "decimals": 1,
-        "min_sl": 45.0,
-        "tier": "⭐⭐⭐⭐⭐ NAS100 ELITE",
-        "win_rate": "86%"
+        "min_sl":   55.0,
+        "tier":     "NAS100 ELITE",
+        "bias":     "BULL",
     },
     "US500": {
-    "mt5": "US500.Qtek",
-    "yf": "^GSPC",
-    "price_lo": 3000,
-    "price_hi": 7000,
-    "sessions": [13, 21],
-    "decimals": 2,
-    "min_sl": 20.0,
-    "tier": "⭐⭐⭐⭐⭐ US500 ELITE",
-    "win_rate": "87%"
-   },
+        "mt5":      "US500.Qtek",
+        "yf":       "^GSPC",
+        "price_lo": 4500,
+        "price_hi": 8000,
+        "sessions": [13, 21],
+        "decimals": 2,
+        "min_sl":   25.0,
+        "tier":     "US500 ELITE",
+        "bias":     "BULL",
+    },
 }
 
 SYMBOLS = list(MARKETS.keys())
 
+# ============================================================
+# SETTINGS
+# ============================================================
+ATR_MULT               = 0.30
+VOL_MULT               = 1.15
+ADX_THRESHOLD          = 24
+SIGNAL_COOLDOWN        = 1800
+HTF_REFRESH            = 1200
+MAX_DAILY_LOSS         = -300
+MAX_CONSECUTIVE_LOSSES = 4
+MIN_SCORE              = 7
 
-# ═══════════════════════════════════════════════════════════════
-# STRATEGY SETTINGS
-# ═══════════════════════════════════════════════════════════════
-RR = 2.5
-ATR_MULT = 0.28
-VOL_MULT = 1.15
-ADX_THRESHOLD = 22
-CONFIRM_THRESHOLD = 6
-SIGNAL_COOLDOWN = 2400
-HTF_REFRESH = 1800
+ATR_MARKET_MULTIPLIER = {
+    "BTC/USD": 1.35,
+    "XAU/USD": 1.05,
+    "XAG/USD": 1.00,
+    "NAS100":  1.03,
+    "US500":   1.02,
+}
 
+DOLLAR_PER_POINT = {
+    "XAU/USD": 100,
+    "XAG/USD": 5000,
+    "BTC/USD": 1,
+    "NAS100":  10,
+    "US500":   10,
+}
 
-# ═══════════════════════════════════════════════════════════════
+MAX_SPREAD = {
+    "XAU/USD": 0.80,
+    "XAG/USD": 0.08,
+    "BTC/USD": 60,
+    "NAS100":  4.0,
+    "US500":   2.0,
+}
+
+# ============================================================
+# RSI BANDS — per symbol
+# ============================================================
+RSI_LIMITS = {
+    "XAU/USD": (58, 72),
+    "XAG/USD": (58, 70),
+    "NAS100":  (55, 70),
+    "US500":   (55, 70),
+    "BTC/USD": (52, 68),
+}
+
+# ============================================================
+# REGIME TO TIMEFRAME MAP
+# ============================================================
+REGIME_TIMEFRAME = {
+    "SCALP":    "1M / 5M",
+    "RANGE":    "15M / 30M",
+    "TREND":    "1H / 4H",
+    "BREAKOUT": "15M / 1H",
+}
+
+# ============================================================
 # STATE
-# ═══════════════════════════════════════════════════════════════
-_signal_sent = {s: 0 for s in SYMBOLS}
-_htf_cache = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
+# ============================================================
+daily_pnl              = 0
+consecutive_losses     = 0
+last_reset_day         = datetime.now(timezone.utc).day
+
+_signal_sent           = {s: 0 for s in SYMBOLS}
+_htf_cache             = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
+_last_signal_direction = {}
+_last_signal_time      = {}
 
 
-# ═══════════════════════════════════════════════════════════════
-# TELEGRAM
-# ═══════════════════════════════════════════════════════════════
-def send_telegram(msg):
+def reset_daily():
+    global daily_pnl, consecutive_losses, last_reset_day
+    current_day = datetime.now(timezone.utc).day
+    if current_day != last_reset_day:
+        daily_pnl          = 0
+        consecutive_losses = 0
+        last_reset_day     = current_day
+        log.info("Daily reset complete")
+
+
+def update_trade_result(pnl):
+    global daily_pnl, consecutive_losses
+    daily_pnl += pnl
+    if pnl < 0:
+        consecutive_losses += 1
+    else:
+        consecutive_losses = 0
+
+
+def sync_real_pnl():
+    return daily_pnl
+
+
+def watchdog():
     try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            json={
-                "chat_id": CHAT_ID,
-                "text": msg,
-                "parse_mode": "Markdown"
-            },
-            timeout=10
-        )
-        log.info(f"✅ Telegram sent | Response: {r.text}")
-
+        with open("heartbeat.txt", "w") as f:
+            f.write(str(time.time()))
     except Exception as e:
-        log.error(f"Telegram error: {e}")
+        log.error(f"Watchdog failure: {e}")
 
 
-# ═══════════════════════════════════════════════════════════════
-# SESSION FILTER
-# ═══════════════════════════════════════════════════════════════
+def send_telegram(msg):
+    for attempt in range(3):
+        try:
+            r = requests.post(
+                f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                json={
+                    "chat_id":    CHAT_ID,
+                    "text":       msg,
+                    "parse_mode": "Markdown"
+                },
+                timeout=10
+            )
+            log.info(f"Telegram sent | {r.text}")
+            return True
+        except Exception as e:
+            log.error(f"Telegram error attempt {attempt + 1}: {e}")
+            time.sleep(2)
+    return False
+
+
+# ============================================================
+# SAFETY GUARDS
+# ============================================================
+def weekend_block(symbol_key):
+    weekday = datetime.now(timezone.utc).weekday()
+    if weekday >= 5 and symbol_key != "BTC/USD":
+        return True
+    return False
+
+
+def daily_loss_lock():
+    if daily_pnl <= MAX_DAILY_LOSS:
+        log.info("Daily loss lock active")
+        return True
+    return False
+
+
+def loss_streak_lock():
+    if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+        log.info("Kill switch: 4 consecutive losses")
+        return True
+    return False
+
+
+def duplicate_signal(symbol_key, direction):
+    now = time.time()
+    if (
+        _last_signal_direction.get(symbol_key) == direction
+        and now - _last_signal_time.get(symbol_key, 0) < 7200
+    ):
+        log.info(f"Duplicate signal blocked for {symbol_key}")
+        return True
+    _last_signal_direction[symbol_key] = direction
+    _last_signal_time[symbol_key]      = now
+    return False
+
+
+def economic_news_block():
+    h = datetime.now(timezone.utc).hour
+    return h in [12, 13, 14]
+
+
+def rotate_log():
+    file_path = "signals_log.csv"
+    if os.path.isfile(file_path):
+        if os.path.getsize(file_path) > 5_000_000:
+            os.rename(file_path, f"signals_log_{int(time.time())}.csv")
+
+
 def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
     s, e = MARKETS[symbol_key]["sessions"]
-
-    if not (s <= h < e):
+    if not (s == 0 and e == 23) and not (s <= h < e):
         return False, "Closed"
-
     if 12 <= h < 16:
-        return True, "NY+London 🔥🔥"
-
+        return True, "NY+London"
     if 7 <= h < 12:
-        return True, "London 🔥"
-
+        return True, "London"
     return True, "Asian"
 
 
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
 # DATA FETCH
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
 def fetch_yf(ticker, period="15d", interval="5m"):
     try:
         raw = yf.download(
-            ticker,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=True
+            ticker, period=period, interval=interval,
+            progress=False, auto_adjust=True
         )
-
         if raw.empty:
             return None
-
         if isinstance(raw.columns, pd.MultiIndex):
             raw.columns = raw.columns.get_level_values(0)
-
         raw.columns = [str(c).lower() for c in raw.columns]
-
         return raw[["open", "high", "low", "close", "volume"]].reset_index(drop=True)
-
-    except Exception as e:
-        log.error(f"YF fetch error: {e}")
+    except:
         return None
 
 
 def fetch_ccxt(src_name, sym, tf="5m", limit=300):
     try:
         exchange = getattr(ccxt, src_name)()
-        ohlcv = exchange.fetch_ohlcv(sym, timeframe=tf, limit=limit)
-
+        ohlcv    = exchange.fetch_ohlcv(sym, timeframe=tf, limit=limit)
         return pd.DataFrame(
-            ohlcv,
-            columns=["time", "open", "high", "low", "close", "volume"]
+            ohlcv, columns=["time", "open", "high", "low", "close", "volume"]
         )
-
-    except Exception as e:
-        log.error(f"CCXT fetch error ({src_name} {sym}): {e}")
+    except:
         return None
 
 
@@ -227,328 +306,492 @@ def get_entry_data(symbol_key):
     if symbol_key == "BTC/USD":
         for src in ["coinbase", "binance"]:
             pair = "BTC/USDT" if src == "binance" else "BTC/USD"
-
-            df = fetch_ccxt(src, pair)
-
+            df   = fetch_ccxt(src, pair)
             if df is not None and len(df) > 100:
                 return df, src
-
     yf_sym = MARKETS[symbol_key]["yf"]
-
     if yf_sym:
         df = fetch_yf(yf_sym)
-
         if df is not None and len(df) > 100:
             return df, "yf"
-
     return None, None
 
 
-def get_htf(symbol_key):
-    yf_sym = MARKETS[symbol_key]["yf"]
+def get_spread(df):
+    if df is None or len(df) < 3:
+        return 999
+    recent    = df.tail(3)
+    avg_range = (
+        recent["high"].astype(float) - recent["low"].astype(float)
+    ).mean()
+    return avg_range * 0.18
 
-    if yf_sym:
-        return fetch_yf(yf_sym, period="15d", interval="15m")
 
-    return None
-
-
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
 # INDICATORS
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
 def add_ind(df):
-    df = df.copy()
-
-    cl = pd.to_numeric(df["close"])
-    hi = pd.to_numeric(df["high"])
-    lo = pd.to_numeric(df["low"])
+    df  = df.copy()
+    cl  = pd.to_numeric(df["close"])
+    hi  = pd.to_numeric(df["high"])
+    lo  = pd.to_numeric(df["low"])
     vol = pd.to_numeric(df["volume"])
-
-    df["ema9"] = ta.trend.EMAIndicator(cl, 9).ema_indicator()
-    df["ema21"] = ta.trend.EMAIndicator(cl, 21).ema_indicator()
-    df["ema50"] = ta.trend.EMAIndicator(cl, 50).ema_indicator()
-
-    df["rsi"] = ta.momentum.RSIIndicator(cl, 14).rsi()
-
-    df["atr"] = ta.volatility.AverageTrueRange(
-        hi, lo, cl, 14
-    ).average_true_range()
-
-    df["adx"] = ta.trend.ADXIndicator(
-        hi, lo, cl, 14
-    ).adx()
-
-    df["volma"] = vol.rolling(20).mean()
-
+    df["ema9"]   = ta.trend.EMAIndicator(cl, 9).ema_indicator()
+    df["ema21"]  = ta.trend.EMAIndicator(cl, 21).ema_indicator()
+    df["ema50"]  = ta.trend.EMAIndicator(cl, 50).ema_indicator()
+    df["ema200"] = ta.trend.EMAIndicator(cl, 200).ema_indicator()
+    df["rsi"]    = ta.momentum.RSIIndicator(cl, 14).rsi()
+    df["atr"]    = ta.volatility.AverageTrueRange(hi, lo, cl, 14).average_true_range()
+    df["adx"]    = ta.trend.ADXIndicator(hi, lo, cl, 14).adx()
+    df["volma"]  = vol.rolling(20).mean()
+    df["vwap"]   = (cl * vol).cumsum() / vol.cumsum()
     return df
 
 
-# ═══════════════════════════════════════════════════════════════
-# HTF TREND
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
+# TREND
+# ============================================================
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
-    now = time.time()
-
+    now   = time.time()
     if now - cache["ts"] < HTF_REFRESH:
         return cache["trend"]
-
-    df = get_htf(symbol_key)
-
-    if df is None or len(df) < 50:
+    df, _ = get_entry_data(symbol_key)
+    if df is None:
         return "NEUTRAL"
-
-    df = add_ind(df)
+    df   = add_ind(df)
     last = df.iloc[-1]
-
     if last["ema21"] > last["ema50"]:
         trend = "BULL"
     elif last["ema21"] < last["ema50"]:
         trend = "BEAR"
     else:
-        trend = "NEUTRAL"
-
+        trend = MARKETS[symbol_key].get("bias", "NEUTRAL")
     cache["trend"] = trend
-    cache["ts"] = now
-
+    cache["ts"]    = now
     return trend
 
 
-# ═══════════════════════════════════════════════════════════════
-# CONDITIONS
-# ═══════════════════════════════════════════════════════════════
-def check_conditions(df, trend):
-    last = df.iloc[-1]
+# ============================================================
+# ICT MODULES
+# ============================================================
+def fair_value_gap(df):
+    if len(df) < 3:
+        return False, False
+    c1 = df.iloc[-3]
+    c3 = df.iloc[-1]
+    return (
+        float(c1["high"]) < float(c3["low"]),
+        float(c1["low"])  > float(c3["high"])
+    )
 
-    rsi = float(last["rsi"])
-    ema9 = float(last["ema9"])
+
+def detect_choch(df):
+    if len(df) < 6:
+        return False, False
+    highs = df["high"].tail(6).tolist()
+    lows  = df["low"].tail(6).tolist()
+    close = float(df.iloc[-1]["close"])
+    return (
+        lows[-2]  < lows[-3]  and close > highs[-2],
+        highs[-2] > highs[-3] and close < lows[-2]
+    )
+
+
+# ============================================================
+# REGIME
+# ============================================================
+def detect_market_regime(df):
+    adx = float(df.iloc[-1]["adx"])
+    if adx >= 35:
+        return "BREAKOUT"
+    elif adx >= 25:
+        return "TREND"
+    elif adx <= 18:
+        return "RANGE"
+    return "SCALP"
+
+
+# ============================================================
+# BREAKOUT CHASE FILTER
+# ============================================================
+def breakout_chase_filter(df, symbol_key):
+    last        = df.iloc[-1]
+    atr         = float(last["atr"])
+    recent_high = float(df.tail(10)["high"].max())
+    recent_low  = float(df.tail(10)["low"].min())
+    close       = float(last["close"])
+
+    if close > recent_high - atr * 0.15:
+        return False
+    if close < recent_low + atr * 0.15:
+        return False
+
+    return True
+
+
+# ============================================================
+# PULLBACK CONFIRMATION
+# ============================================================
+def pullback_confirmation(df, direction):
+    last  = df.iloc[-1]
+    close = float(last["close"])
+    ema9  = float(last["ema9"])
+    ema21 = float(last["ema21"])
+    atr   = float(last["atr"])
+
+    if direction == "BUY":
+        return (
+            close > ema9
+            and abs(close - ema9) < atr * 0.35
+            and close > ema21
+        )
+    else:
+        return (
+            close < ema9
+            and abs(close - ema9) < atr * 0.35
+            and close < ema21
+        )
+
+
+# ============================================================
+# SCORING ENGINE
+# ============================================================
+def build_score(df, trend, symbol_key):
+    last  = df.iloc[-1]
+    rsi   = float(last["rsi"])
+    ema9  = float(last["ema9"])
     ema21 = float(last["ema21"])
     ema50 = float(last["ema50"])
-
-    vol = float(last["volume"])
+    adx   = float(last["adx"])
+    vol   = float(last["volume"])
     volma = float(last["volma"]) if not pd.isna(last["volma"]) else 0
+    atr   = float(last["atr"])
 
-    close = float(last["close"])
-    op = float(last["open"])
-    atr = float(last["atr"])
-    adx = float(last["adx"])
+    bull_fvg,   bear_fvg   = fair_value_gap(df)
+    bull_choch, bear_choch = detect_choch(df)
 
-    body = abs(close - op)
-    rng = max(last["high"] - last["low"], 0.0001)
-    body_pct = body / rng
+    bullish_break = float(last["close"]) > float(df.iloc[-2]["high"]) + atr * 0.12
+    bearish_break = float(last["close"]) < float(df.iloc[-2]["low"])  - atr * 0.12
 
-    near_ema = abs(close - ema9) < atr * 0.25
-    strong_body = body_pct > 0.60
-    vol_ok = volma > 0 and vol > volma * VOL_MULT
-
-    bullish_break = close > df.iloc[-2]["high"] + atr * 0.15
-    bearish_break = close < df.iloc[-2]["low"] - atr * 0.15
+    # per-symbol RSI bands
+    rsi_min, rsi_max = RSI_LIMITS[symbol_key]
 
     buy = {
-        "HTF Bull": trend == "BULL",
-        "EMA Alignment": ema9 > ema21 > ema50,
-        "RSI Strength": rsi > 50,
-        "Strong Volume": vol_ok,
-        "Bull Candle": close > op and strong_body,
-        "EMA Pullback": near_ema,
-        "BOS": bullish_break,
-        "ADX": adx > ADX_THRESHOLD,
+        "HTF":   trend == "BULL",
+        "EMA":   ema9 > ema21 > ema50,
+        "RSI":   rsi_min <= rsi <= rsi_max,
+        "ADX":   adx > ADX_THRESHOLD,
+        "VOL":   volma > 0 and vol > volma * VOL_MULT,
+        "FVG":   bull_fvg,
+        "CHOCH": bull_choch,
+        "BOS":   bullish_break,
     }
 
     sell = {
-        "HTF Bear": trend == "BEAR",
-        "EMA Alignment": ema9 < ema21 < ema50,
-        "RSI Weakness": rsi < 50,
-        "Strong Volume": vol_ok,
-        "Bear Candle": close < op and strong_body,
-        "EMA Pullback": near_ema,
-        "BOS": bearish_break,
-        "ADX": adx > ADX_THRESHOLD,
+        "HTF":   trend == "BEAR",
+        "EMA":   ema9 < ema21 < ema50,
+        "RSI":   (100 - rsi_max) <= rsi <= (100 - rsi_min),
+        "ADX":   adx > ADX_THRESHOLD,
+        "VOL":   volma > 0 and vol > volma * VOL_MULT,
+        "FVG":   bear_fvg,
+        "CHOCH": bear_choch,
+        "BOS":   bearish_break,
     }
 
-    buy_score = sum(buy.values())
+    buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
 
-    return buy, sell, buy_score, sell_score, rsi, close, atr, adx
+    if MARKETS[symbol_key].get("bias") == "BULL":
+        buy_score += 1
+
+    return buy, sell, buy_score, sell_score
 
 
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
 # LEVELS
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
 def calc_levels(price, direction, atr, symbol_key, df):
-    min_sl = MARKETS[symbol_key]["min_sl"]
+    min_sl   = MARKETS[symbol_key]["min_sl"]
     decimals = MARKETS[symbol_key]["decimals"]
-
-    atr_sl = float(atr) * ATR_MULT
-    recent = df.tail(6)
+    recent   = df.tail(8)
 
     if direction == "BUY":
-        swing = price - recent["low"].min()
+        swing_sl = price - float(recent["low"].min())
     else:
-        swing = recent["high"].max() - price
+        swing_sl = float(recent["high"].max()) - price
 
-    sl_dist = max(min_sl, min(atr_sl, swing))
-    
+    atr_sl  = atr * ATR_MULT * ATR_MARKET_MULTIPLIER[symbol_key]
+    sl_dist = max(
+        min_sl,
+        min(
+            max(atr_sl, swing_sl * 0.85),
+            swing_sl * 1.15
+        )
+    )
+
+    if symbol_key == "BTC/USD":
+        rr = 2.8
+    elif symbol_key in ["XAU/USD", "NAS100"]:
+        rr = 2.7
+    else:
+        rr = 2.5
 
     if direction == "BUY":
         sl = price - sl_dist
-        tp = price + sl_dist * RR
+        tp = price + sl_dist * rr
     else:
         sl = price + sl_dist
-        tp = price - sl_dist * RR
+        tp = price - sl_dist * rr
 
     return (
         round(sl, decimals),
         round(tp, decimals),
-        round(sl_dist, decimals)
+        round(sl_dist, decimals),
+        rr
     )
 
 
-# ═══════════════════════════════════════════════════════════════
-# LOT SIZE
-# ═══════════════════════════════════════════════════════════════
-def lot_for_risk(price, sl, symbol_key, risk=50):
+# ============================================================
+# LOT SIZE — partial institutional entry
+# ============================================================
+def lot_for_risk(price, sl, symbol_key, risk=25):
     sl_dist = abs(price - sl)
-
-    if sl_dist == 0:
+    if sl_dist <= 0:
         return 0.01
 
-    dpl = DOLLAR_PER_LOT[symbol_key]
-    return max(round(risk / (sl_dist * dpl), 3), 0.01)
+    full_lot = risk / (sl_dist * DOLLAR_PER_POINT[symbol_key])
+
+    # 65% partial institutional entry
+    lot = full_lot * 0.65
+
+    caps = {
+        "XAU/USD": 1.20,
+        "XAG/USD": 0.12,
+        "BTC/USD": 0.40,
+        "NAS100":  1.50,
+        "US500":   2.50,
+    }
+
+    return round(max(0.01, min(lot, caps[symbol_key])), 3)
 
 
-# ═══════════════════════════════════════════════════════════════
-# PROCESS
-# ═══════════════════════════════════════════════════════════════
-def process(symbol_key):
-    log.info(f"🔍 Scanning {symbol_key}")
+# ============================================================
+# SIGNAL JOURNAL
+# ============================================================
+def log_signal(symbol, direction, score, rr, entry, sl, tp, session, regime, timeframe):
+    file_exists = os.path.isfile("signals_log.csv")
+    with open("signals_log.csv", "a", newline="") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow([
+                "version", "timestamp", "symbol", "direction",
+                "score", "rr", "entry", "sl", "tp",
+                "session", "regime", "timeframe"
+            ])
+        writer.writerow([
+            SYSTEM_VERSION,
+            datetime.now(timezone.utc).isoformat(),
+            symbol, direction, score, rr,
+            entry, sl, tp, session, regime, timeframe
+        ])
+
+
+# ============================================================
+# PROCESS SYMBOL
+# ============================================================
+def process_symbol(symbol_key):
+    log.info(f"Scanning {symbol_key}")
+
+    if weekend_block(symbol_key):
+        return
+    if daily_loss_lock():
+        return
+    if loss_streak_lock():
+        return
+
+    watchdog()
+    rotate_log()
 
     ok, session = in_session(symbol_key)
-
     if not ok:
         return
 
-    df, source = get_entry_data(symbol_key)
+    if economic_news_block() and symbol_key in ["XAU/USD", "NAS100", "US500"]:
+        log.info(f"BLOCKED {symbol_key} news window")
+        return
 
+    df, source = get_entry_data(symbol_key)
     if df is None or len(df) < 100:
         return
 
-    df = add_ind(df)
+    spread = get_spread(df)
+    if spread > MAX_SPREAD[symbol_key]:
+        log.info(f"REJECTED {symbol_key} spread {spread:.4f}")
+        return
+
+    df    = add_ind(df)
     price = float(df.iloc[-1]["close"])
 
-    if not (
-        MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]
-    ):
+    if not (MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]):
+        log.info(f"REJECTED {symbol_key} price out of range")
         return
 
     trend = get_trend(symbol_key)
+
     if symbol_key == "BTC/USD" and trend == "NEUTRAL":
+        log.info("REJECTED BTC/USD HTF NEUTRAL")
         return
 
-    buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(df, trend)
+    buy, sell, buy_score, sell_score = build_score(df, trend, symbol_key)
 
-    best = max(buy_score, sell_score)
-    log.info(f"{symbol_key} | Buy Score: {buy_score} | Sell Score: {sell_score} | Best: {best}")
+    best   = max(buy_score, sell_score)
+    regime = detect_market_regime(df)
 
-    if adx < ADX_THRESHOLD:
-        log.info(f"❌ {symbol_key} rejected due to weak ADX: {adx:.1f}")
+    timeframe = REGIME_TIMEFRAME.get(regime, "5M / 15M")
+
+    atr = float(df.iloc[-1]["atr"])
+    rsi = float(df.iloc[-1]["rsi"])
+    adx = float(df.iloc[-1]["adx"])
+
+    # RSI protection filters
+    if symbol_key == "XAU/USD" and rsi > 74:
+        log.info(f"REJECTED {symbol_key} RSI too high {rsi:.1f}")
+        return
+    if symbol_key == "XAG/USD" and rsi > 76:
+        log.info(f"REJECTED {symbol_key} RSI too high {rsi:.1f}")
+        return
+    if regime == "RANGE" and best < 7:
+        log.info(f"REJECTED {symbol_key} RANGE needs score 7+, got {best}")
         return
 
-    required_score = CONFIRM_THRESHOLD
+    log.info(
+        f"{symbol_key} | BUY: {buy_score} | SELL: {sell_score} | "
+        f"Regime: {regime} | TF: {timeframe} | "
+        f"RSI: {rsi:.1f} | ADX: {adx:.1f} | "
+        f"Trend: {trend} | Session: {session}"
+    )
 
-# Asian stricter
-    if session == "Asian":
-        required_score += 1
-
-# Gold precision
-    if symbol_key == "XAU/USD":
-        required_score = max(required_score, 7)
-
-# Silver precision
-    if symbol_key == "XAG/USD" and session == "Asian":
-        required_score = max(required_score, 7)
-
-# NAS precision
-    if symbol_key == "NAS100" and session == "Asian":
-        required_score = max(required_score, 7)
-
-# US500 precision
-    if symbol_key == "US500" and session == "Asian":
-        required_score = max(required_score, 7)
-
-    if best < required_score:
+    if best < MIN_SCORE:
+        log.info(f"REJECTED {symbol_key} score {best} < {MIN_SCORE}")
         return
 
-    now = time.time()
-
-    if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
-        log.info(f"⏳ {symbol_key} cooldown active")
+    if buy_score == sell_score:
+        log.info(f"REJECTED {symbol_key} tied score")
         return
 
     direction = "BUY" if buy_score > sell_score else "SELL"
-    checks = buy if direction == "BUY" else sell
 
-    sl, tp, sl_dist = calc_levels(price, direction, atr, symbol_key, df)
-    lot = lot_for_risk(price, sl, symbol_key, 50)
+    bias = MARKETS[symbol_key].get("bias", "NEUTRAL")
+    if bias == "BULL" and direction == "SELL":
+        if best < MIN_SCORE + 2:
+            log.info(f"REJECTED {symbol_key} SELL — bull bias")
+            return
+
+    # breakout chase protection
+    if not breakout_chase_filter(df, symbol_key):
+        log.info(f"REJECTED {symbol_key} breakout chase risk")
+        return
+
+    # pullback confirmation
+    if not pullback_confirmation(df, direction):
+        log.info(f"REJECTED {symbol_key} weak pullback structure")
+        return
+
+    if duplicate_signal(symbol_key, direction):
+        return
+
+    now = time.time()
+    if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
+        remaining = int(SIGNAL_COOLDOWN - (now - _signal_sent[symbol_key]))
+        log.info(f"REJECTED {symbol_key} cooldown {remaining}s")
+        return
 
     _signal_sent[symbol_key] = now
 
-    mt5 = MARKETS[symbol_key]["mt5"]
     dec = MARKETS[symbol_key]["decimals"]
 
-    msg = f'''
-🚀 *A+ SIGNAL — {mt5}* 🚀
-_{MARKETS[symbol_key]["tier"]}_
+    sl, tp, sl_dist, rr = calc_levels(price, direction, atr, symbol_key, df)
 
-🔥 *Action:* {"BUY 📈" if direction == "BUY" else "SELL 📉"}
-⭐ *Score:* {best}/8
+    actual_rr = round(abs(tp - price) / abs(price - sl), 2) if abs(price - sl) > 0 else 0
 
-📍 *Entry:* ${price:,.{dec}f}
-🛑 *SL:* ${sl:,.{dec}f}
-🎯 *TP:* ${tp:,.{dec}f} *(1:2.5 RR)*
+    if actual_rr < 2.0:
+        log.info(f"REJECTED {symbol_key} RR {actual_rr} < 2.0")
+        return
 
-📈 *RSI:* {rsi:.1f}
-📉 *ADX:* {adx:.1f}
-🌍 *HTF:* {trend}
-⏰ *Session:* {session}
-📡 *Source:* {source}
+    lot = lot_for_risk(price, sl, symbol_key, 25)
 
-💵 *$50 Risk Lot:* {lot:.3f}
+    log_signal(symbol_key, direction, best, rr, price, sl, tp, session, regime, timeframe)
+    sync_real_pnl()
 
-✅ *A+ Conditions:*
-''' + "\n".join(
-        [f" ✅ {k}" for k, v in checks.items() if v]
-    ) + "\n\n⚡ *STRICT ELITE SETUP ONLY*"
+    checks    = buy if direction == "BUY" else sell
+    cond_text = "\n".join([f" {k}" for k, v in checks.items() if v])
+
+    msg = (
+        f"🎯 *{SYSTEM_VERSION}*\n"
+        f"*{MARKETS[symbol_key]['mt5']}* | ⭐⭐⭐⭐⭐ {MARKETS[symbol_key]['tier']}\n\n"
+        f"🔥 *Action:* {'BUY 📈' if direction == 'BUY' else 'SELL 📉'}\n"
+        f"⭐ *Score:* {best}/8\n"
+        f"🧠 *Regime:* {regime}\n"
+        f"⏱ *Timeframe:* {timeframe}\n"
+        f"📊 *Market Bias:* {bias}\n"
+        f"🛡 *Entry Mode:* Partial Institutional Precision\n\n"
+        f"📍 *Entry:* {price:,.{dec}f}\n"
+        f"🛑 *SL:* {sl:,.{dec}f}\n"
+        f"🎯 *TP:* {tp:,.{dec}f} *(1:{actual_rr} RR)*\n\n"
+        f"📈 *RSI:* {rsi:.1f}\n"
+        f"📉 *ADX:* {adx:.1f}\n"
+        f"🌍 *Trend:* {trend}\n"
+        f"⏰ *Session:* {session}\n"
+        f"📡 *Source:* {source}\n\n"
+        f"💵 *Lot:* {lot}\n\n"
+        f"✅ *Conditions:*\n"
+        f"{cond_text}\n\n"
+        f"⚡ *HYBRID INSTITUTIONAL PRO MODE*"
+    )
 
     send_telegram(msg)
-    log.info(f"🚀 A+ SIGNAL {symbol_key} {direction}")
+
+    log.info(
+        f"SIGNAL SENT {symbol_key} {direction} | "
+        f"Entry: {price} | SL: {sl} | TP: {tp} | "
+        f"RR: {actual_rr} | Regime: {regime} | TF: {timeframe}"
+    )
 
 
-# ═══════════════════════════════════════════════════════════════
-# MAIN LOOP
-# ═══════════════════════════════════════════════════════════════
+# ============================================================
+# MAIN
+# ============================================================
 def main():
-    log.info("═" * 60)
-    log.info("🚀 MOMENTUM HUNTER v16.0 STARTED")
-    log.info("🎯 A+ FILTER ONLY | STRICT ELITE MODE")
-    log.info("📊 15m HTF + 5m Entry")
-    log.info("🥇 Gold | 🥈 Silver | 🥉 BTC | 🏅 NAS100 | 🇺🇸 US500")
-    log.info("═" * 60)
-
-    send_telegram("🚀 Bot started successfully on Railway")
+    log.info(f"{SYSTEM_VERSION} STARTED")
+    send_telegram(
+        f"🚀 *{SYSTEM_VERSION} LIVE*\n\n"
+        f"📊 *Markets Active:*\n"
+        f"₿  BTC/USD\n"
+        f"🥇 XAU/USD\n"
+        f"🥈 XAG/USD\n"
+        f"📈 NAS100\n"
+        f"🇺🇸 US500\n\n"
+        f"🛡 Entry Precision Upgrades Active\n"
+        f"⚡ Hybrid Institutional Pro Mode"
+    )
 
     while True:
         try:
-            log.info("🔄 Running market scan cycle...")
+            reset_daily()
 
-            with ThreadPoolExecutor(max_workers=5) as ex:
-                futures = [ex.submit(process, s) for s in SYMBOLS]
+            with ThreadPoolExecutor(max_workers=len(SYMBOLS)) as executor:
+                futures = [
+                    executor.submit(process_symbol, symbol)
+                    for symbol in SYMBOLS
+                ]
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        log.error(f"Thread error: {e}")
 
-                for f in as_completed(futures):
-                    pass
-
-            log.info("⏱ Waiting 20s for next cycle...")
-            time.sleep(20)
+            time.sleep(15)
 
         except Exception as e:
             log.error(f"Main loop error: {e}")
