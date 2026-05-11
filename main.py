@@ -102,6 +102,24 @@ MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 4
 MIN_SCORE              = 6
 
+MAX_SPREAD = {
+    "XAU/USD": 0.80,
+    "XAG/USD": 0.08,
+    "BTC/USD": 60,
+    "NAS100":  4.0,
+    "US500":   2.0,
+}
+
+# ============================================================
+# REGIME TO TIMEFRAME MAP
+# ============================================================
+REGIME_TIMEFRAME = {
+    "SCALP":    "1M / 5M",
+    "RANGE":    "15M / 30M",
+    "TREND":    "1H / 4H",
+    "BREAKOUT": "15M / 1H",
+}
+
 # ============================================================
 # STATE
 # ============================================================
@@ -146,9 +164,6 @@ def watchdog():
         log.error(f"Watchdog failure: {e}")
 
 
-# ============================================================
-# TELEGRAM WITH RETRY
-# ============================================================
 def send_telegram(msg):
     for attempt in range(3):
         try:
@@ -169,9 +184,6 @@ def send_telegram(msg):
     return False
 
 
-# ============================================================
-# SAFETY GUARDS
-# ============================================================
 def weekend_block(symbol_key):
     weekday = datetime.now(timezone.utc).weekday()
     if weekday >= 5 and symbol_key != "BTC/USD":
@@ -230,9 +242,6 @@ def in_session(symbol_key):
     return True, "Asian"
 
 
-# ============================================================
-# DATA FETCH
-# ============================================================
 def fetch_yf(ticker, period="15d", interval="5m"):
     try:
         raw = yf.download(
@@ -285,25 +294,12 @@ def get_spread(df):
     return avg_range * 0.18
 
 
-MAX_SPREAD = {
-    "XAU/USD": 0.80,
-    "XAG/USD": 0.08,
-    "BTC/USD": 60,
-    "NAS100":  4.0,
-    "US500":   2.0,
-}
-
-
-# ============================================================
-# INDICATORS
-# ============================================================
 def add_ind(df):
     df  = df.copy()
     cl  = pd.to_numeric(df["close"])
     hi  = pd.to_numeric(df["high"])
     lo  = pd.to_numeric(df["low"])
     vol = pd.to_numeric(df["volume"])
-
     df["ema9"]   = ta.trend.EMAIndicator(cl, 9).ema_indicator()
     df["ema21"]  = ta.trend.EMAIndicator(cl, 21).ema_indicator()
     df["ema50"]  = ta.trend.EMAIndicator(cl, 50).ema_indicator()
@@ -313,44 +309,30 @@ def add_ind(df):
     df["adx"]    = ta.trend.ADXIndicator(hi, lo, cl, 14).adx()
     df["volma"]  = vol.rolling(20).mean()
     df["vwap"]   = (cl * vol).cumsum() / vol.cumsum()
-
     return df
 
 
-# ============================================================
-# TREND
-# ============================================================
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
     now   = time.time()
-
     if now - cache["ts"] < HTF_REFRESH:
         return cache["trend"]
-
     df, _ = get_entry_data(symbol_key)
-
     if df is None:
         return "NEUTRAL"
-
     df   = add_ind(df)
     last = df.iloc[-1]
-
     if last["ema21"] > last["ema50"]:
         trend = "BULL"
     elif last["ema21"] < last["ema50"]:
         trend = "BEAR"
     else:
         trend = MARKETS[symbol_key].get("bias", "NEUTRAL")
-
     cache["trend"] = trend
     cache["ts"]    = now
-
     return trend
 
 
-# ============================================================
-# ICT MODULES
-# ============================================================
 def fair_value_gap(df):
     if len(df) < 3:
         return False, False
@@ -389,9 +371,6 @@ def rejection_wick(df):
     )
 
 
-# ============================================================
-# REGIME
-# ============================================================
 def detect_market_regime(df):
     adx = float(df.iloc[-1]["adx"])
     if adx >= 35:
@@ -403,9 +382,6 @@ def detect_market_regime(df):
     return "SCALP"
 
 
-# ============================================================
-# SCORING ENGINE
-# ============================================================
 def build_score(df, trend, symbol_key):
     last  = df.iloc[-1]
     rsi   = float(last["rsi"])
@@ -447,7 +423,6 @@ def build_score(df, trend, symbol_key):
     buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
 
-    # May 2026 bull bias
     if bias == "BULL":
         buy_score  = int(round(buy_score  * 1.10))
         sell_score = int(round(sell_score * 0.90))
@@ -455,9 +430,6 @@ def build_score(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score
 
 
-# ============================================================
-# LEVELS
-# ============================================================
 def calc_levels(price, direction, atr, symbol_key):
     min_sl   = MARKETS[symbol_key]["min_sl"]
     decimals = MARKETS[symbol_key]["decimals"]
@@ -487,9 +459,6 @@ def calc_levels(price, direction, atr, symbol_key):
     )
 
 
-# ============================================================
-# LOT SIZE
-# ============================================================
 def lot_for_risk(price, sl, risk):
     sl_dist = abs(price - sl)
     if sl_dist == 0:
@@ -497,29 +466,24 @@ def lot_for_risk(price, sl, risk):
     return max(round(risk / sl_dist, 3), 0.01)
 
 
-# ============================================================
-# SIGNAL JOURNAL
-# ============================================================
-def log_signal(symbol, direction, score, rr, entry, sl, tp, session, regime):
+def log_signal(symbol, direction, score, rr, entry, sl, tp, session, regime, timeframe):
     file_exists = os.path.isfile("signals_log.csv")
     with open("signals_log.csv", "a", newline="") as f:
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow([
                 "version", "timestamp", "symbol", "direction",
-                "score", "rr", "entry", "sl", "tp", "session", "regime"
+                "score", "rr", "entry", "sl", "tp",
+                "session", "regime", "timeframe"
             ])
         writer.writerow([
             SYSTEM_VERSION,
             datetime.now(timezone.utc).isoformat(),
             symbol, direction, score, rr,
-            entry, sl, tp, session, regime
+            entry, sl, tp, session, regime, timeframe
         ])
 
 
-# ============================================================
-# PROCESS SYMBOL
-# ============================================================
 def process_symbol(symbol_key):
     log.info(f"Scanning {symbol_key}")
 
@@ -565,10 +529,15 @@ def process_symbol(symbol_key):
 
     buy, sell, buy_score, sell_score = build_score(df, trend, symbol_key)
 
-    best = max(buy_score, sell_score)
+    best   = max(buy_score, sell_score)
+    regime = detect_market_regime(df)
+
+    # ── timeframe from regime
+    timeframe = REGIME_TIMEFRAME.get(regime, "5M / 15M")
 
     log.info(
         f"{symbol_key} | BUY: {buy_score} | SELL: {sell_score} | "
+        f"Regime: {regime} | TF: {timeframe} | "
         f"Trend: {trend} | Session: {session}"
     )
 
@@ -582,7 +551,6 @@ def process_symbol(symbol_key):
 
     direction = "BUY" if buy_score > sell_score else "SELL"
 
-    # bull market sell guard
     bias = MARKETS[symbol_key].get("bias", "NEUTRAL")
     if bias == "BULL" and direction == "SELL":
         if best < MIN_SCORE + 2:
@@ -600,11 +568,10 @@ def process_symbol(symbol_key):
 
     _signal_sent[symbol_key] = now
 
-    atr    = float(df.iloc[-1]["atr"])
-    rsi    = float(df.iloc[-1]["rsi"])
-    adx    = float(df.iloc[-1]["adx"])
-    regime = detect_market_regime(df)
-    dec    = MARKETS[symbol_key]["decimals"]
+    atr = float(df.iloc[-1]["atr"])
+    rsi = float(df.iloc[-1]["rsi"])
+    adx = float(df.iloc[-1]["adx"])
+    dec = MARKETS[symbol_key]["decimals"]
 
     sl, tp, sl_dist = calc_levels(price, direction, atr, symbol_key)
 
@@ -616,7 +583,7 @@ def process_symbol(symbol_key):
 
     lot = lot_for_risk(price, sl, 25)
 
-    log_signal(symbol_key, direction, best, rr, price, sl, tp, session, regime)
+    log_signal(symbol_key, direction, best, rr, price, sl, tp, session, regime, timeframe)
     sync_real_pnl()
 
     checks    = buy if direction == "BUY" else sell
@@ -628,6 +595,7 @@ def process_symbol(symbol_key):
         f"🔥 *Action:* {'BUY 📈' if direction == 'BUY' else 'SELL 📉'}\n"
         f"⭐ *Score:* {best}/8\n"
         f"🧠 *Regime:* {regime}\n"
+        f"⏱ *Timeframe:* {timeframe}\n"
         f"📊 *Market Bias:* {bias}\n\n"
         f"📍 *Entry:* {price:,.{dec}f}\n"
         f"🛑 *SL:* {sl:,.{dec}f}\n"
@@ -647,13 +615,11 @@ def process_symbol(symbol_key):
 
     log.info(
         f"SIGNAL SENT {symbol_key} {direction} | "
-        f"Entry: {price} | SL: {sl} | TP: {tp} | RR: {rr}"
+        f"Entry: {price} | SL: {sl} | TP: {tp} | "
+        f"RR: {rr} | Regime: {regime} | TF: {timeframe}"
     )
 
 
-# ============================================================
-# MAIN
-# ============================================================
 def main():
     log.info(f"{SYSTEM_VERSION} STARTED")
     send_telegram(
