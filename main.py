@@ -1,19 +1,20 @@
 # ═══════════════════════════════════════════════════════════════
 # PEPPERSTONE MOMENTUM HUNTER v16.5 — ELITE INSTITUTIONAL TVM
-# PRECISION+ ADAPTIVE — SAFE FOR LIVE DEPLOYMENT
-# ✔ Spread Filter          ✔ ATR Spike Filter
-# ✔ Liquidity Sweep        ✔ Order Block
-# ✔ Fair Value Gap (FVG)   ✔ Adaptive RR
-# ✔ Dynamic Risk           ✔ ICT / TVM Kill Zones
-# ✔ Session Precision      ✔ 5 Market Elite Build
-# ✔ Single TP (SR/Liq)     ✔ Trade Journal (versioned)
-# ✔ News Blackout          ✔ Weekend Filter
-# ✔ Daily Loss Lock        ✔ Loss Streak Breaker
-# ✔ Daily Auto-Reset       ✔ Trade Result Tracking
-# ✔ Duplicate Signal Decay ✔ CSV Rotation
-# ✔ BTC Overtrading Guard  ✔ Telegram Retry
-# ✔ Asian Session Penalty  ✔ Avg Spread Proxy
-# ✔ Full Debug Logging
+# ADVANCED HYBRID ENGINE PATCH
+# ✔ Market Regime Detection  ✔ Adaptive Scoring
+# ✔ Reversal Signal Module   ✔ Breakout Signal Module
+# ✔ CHOCH Reversal           ✔ Rejection Wick
+# ✔ Support Bounce           ✔ Resistance Reject
+# ✔ Fair Value Gap           ✔ Adaptive RR
+# ✔ Dynamic Risk             ✔ ICT / TVM Kill Zones
+# ✔ Session Precision        ✔ 5 Market Elite Build
+# ✔ Single TP (SR/Liq)       ✔ Trade Journal (versioned)
+# ✔ News Blackout            ✔ Weekend Filter
+# ✔ Daily Loss Lock          ✔ Loss Streak Breaker
+# ✔ Daily Auto-Reset         ✔ Trade Result Tracking
+# ✔ Duplicate Signal Decay   ✔ CSV Rotation
+# ✔ BTC Overtrading Guard    ✔ Telegram Retry
+# ✔ Asian Session Penalty    ✔ Avg Spread Proxy
 # ═══════════════════════════════════════════════════════════════
 
 import time
@@ -36,7 +37,7 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v16.5-institutional")
+log = logging.getLogger("v16.5-hybrid")
 
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM
@@ -70,7 +71,7 @@ MARKETS = {
         "sessions": [7, 20],
         "decimals": 2,
         "min_sl": 5.0,
-        "tier": "⭐⭐⭐⭐⭐ GOLD ELITE",
+        "tier": "GOLD ELITE",
     },
     "XAG/USD": {
         "mt5": "XAGUSD.Qraw",
@@ -80,7 +81,7 @@ MARKETS = {
         "sessions": [7, 20],
         "decimals": 3,
         "min_sl": 0.25,
-        "tier": "⭐⭐⭐⭐⭐ SILVER ELITE",
+        "tier": "SILVER ELITE",
     },
     "BTC/USD": {
         "mt5": "BTCUSD.Qraw",
@@ -90,7 +91,7 @@ MARKETS = {
         "sessions": [0, 23],
         "decimals": 2,
         "min_sl": 120.0,
-        "tier": "⭐⭐⭐⭐⭐ BTC ELITE",
+        "tier": "BTC ELITE",
     },
     "NAS100": {
         "mt5": "NAS100",
@@ -100,7 +101,7 @@ MARKETS = {
         "sessions": [13, 21],
         "decimals": 1,
         "min_sl": 45.0,
-        "tier": "⭐⭐⭐⭐⭐ NAS100 ELITE",
+        "tier": "NAS100 ELITE",
     },
     "US500": {
         "mt5": "US500.Qtek",
@@ -110,24 +111,31 @@ MARKETS = {
         "sessions": [13, 21],
         "decimals": 2,
         "min_sl": 20.0,
-        "tier": "⭐⭐⭐⭐⭐ US500 ELITE",
+        "tier": "US500 ELITE",
     },
 }
 
 SYMBOLS = list(MARKETS.keys())
 
 # ═══════════════════════════════════════════════════════════════
-# SETTINGS — v16.5 Higher Frequency
+# SETTINGS — Advanced Hybrid Engine
 # ═══════════════════════════════════════════════════════════════
-RR                 = 2.3
-ATR_MULT           = 0.38
-VOL_MULT           = 1.10
-ADX_THRESHOLD      = 21
+RR                 = 3.2
+ATR_MULT           = 0.42
+VOL_MULT           = 1.05
+ADX_THRESHOLD      = 20
 CONFIRM_THRESHOLD  = 8
-ATR_SPIKE_MULT     = 2.0
-SIGNAL_COOLDOWN    = 1200
-HTF_REFRESH        = 1500
-BTC_EXTRA_COOLDOWN = 1800
+ATR_SPIKE_MULT     = 2.2
+SIGNAL_COOLDOWN    = 900
+HTF_REFRESH        = 1200
+BTC_EXTRA_COOLDOWN = 1200
+
+TREND_WEIGHT       = 1.25
+REVERSAL_WEIGHT    = 1.15
+BREAKOUT_WEIGHT    = 1.20
+RANGE_ADX_LIMIT    = 18
+TREND_ADX_LIMIT    = 25
+EXTREME_ADX_LIMIT  = 35
 
 MAX_SPREAD = {
     "XAU/USD": 0.50,
@@ -196,7 +204,7 @@ def send_telegram(msg):
                 },
                 timeout=10
             )
-            log.info(f"Telegram sent | Response: {r.text}")
+            log.info(f"Telegram sent | {r.text}")
             return True
 
         except Exception as e:
@@ -242,7 +250,7 @@ def daily_loss_lock():
 def loss_streak_lock():
     global consecutive_losses
     if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
-        log.info("Consecutive loss lock active")
+        log.info("Kill switch: 4 consecutive losses")
         return True
     return False
 
@@ -453,7 +461,7 @@ def get_trend(symbol_key):
     return trend
 
 # ═══════════════════════════════════════════════════════════════
-# FAIR VALUE GAP DETECTION
+# FAIR VALUE GAP
 # ═══════════════════════════════════════════════════════════════
 def fair_value_gap(df):
     if len(df) < 3:
@@ -468,7 +476,98 @@ def fair_value_gap(df):
     return bullish_fvg, bearish_fvg
 
 # ═══════════════════════════════════════════════════════════════
-# CONDITIONS — 14-point scoring (13 + FVG)
+# CHOCH REVERSAL DETECTION
+# ═══════════════════════════════════════════════════════════════
+def detect_choch(df):
+    if len(df) < 6:
+        return False, False
+
+    highs = df["high"].tail(6).tolist()
+    lows  = df["low"].tail(6).tolist()
+    close = float(df.iloc[-1]["close"])
+
+    bullish_choch = lows[-2] < lows[-3] and close > highs[-2]
+    bearish_choch = highs[-2] > highs[-3] and close < lows[-2]
+
+    return bullish_choch, bearish_choch
+
+# ═══════════════════════════════════════════════════════════════
+# REJECTION WICK DETECTION
+# ═══════════════════════════════════════════════════════════════
+def rejection_wick(df):
+    last  = df.iloc[-1]
+    high  = float(last["high"])
+    low   = float(last["low"])
+    open_ = float(last["open"])
+    close = float(last["close"])
+
+    body       = abs(close - open_)
+    upper_wick = high - max(close, open_)
+    lower_wick = min(close, open_) - low
+
+    bullish_rejection = lower_wick > body * 1.5
+    bearish_rejection = upper_wick > body * 1.5
+
+    return bullish_rejection, bearish_rejection
+
+# ═══════════════════════════════════════════════════════════════
+# MARKET REGIME DETECTION
+# ═══════════════════════════════════════════════════════════════
+def detect_market_regime(df):
+    last    = df.iloc[-1]
+    adx     = float(last["adx"])
+    ema9    = float(last["ema9"])
+    ema21   = float(last["ema21"])
+    atr     = float(last["atr"])
+    ema_gap = abs(ema9 - ema21)
+
+    if adx >= TREND_ADX_LIMIT and ema_gap > atr * 0.15:
+        return "TREND"
+    elif adx <= RANGE_ADX_LIMIT:
+        return "RANGE"
+    elif adx >= EXTREME_ADX_LIMIT:
+        return "BREAKOUT"
+
+    return "MIXED"
+
+# ═══════════════════════════════════════════════════════════════
+# REVERSAL SIGNAL MODULE
+# ═══════════════════════════════════════════════════════════════
+def reversal_signal(df, symbol_key):
+    last  = df.iloc[-1]
+    rsi   = float(last["rsi"])
+    close = float(last["close"])
+
+    support, resistance = get_sr_levels(df)
+
+    buy_reversal  = rsi < 32 and close <= float(support)    * 1.003
+    sell_reversal = rsi > 68 and close >= float(resistance) * 0.997
+
+    return buy_reversal, sell_reversal
+
+# ═══════════════════════════════════════════════════════════════
+# BREAKOUT SIGNAL MODULE
+# ═══════════════════════════════════════════════════════════════
+def breakout_signal(df):
+    last  = df.iloc[-1]
+    prev  = df.iloc[-2]
+    atr   = float(last["atr"])
+    vol   = float(last["volume"])
+    volma = float(last["volma"]) if not pd.isna(last["volma"]) else 0
+
+    bullish = (
+        float(last["close"]) > float(prev["high"]) + atr * 0.35
+        and vol > volma * 1.30
+    )
+    bearish = (
+        float(last["close"]) < float(prev["low"]) - atr * 0.35
+        and vol > volma * 1.30
+    )
+
+    return bullish, bearish
+
+# ═══════════════════════════════════════════════════════════════
+# CONDITIONS — 17-point base scoring
 # ═══════════════════════════════════════════════════════════════
 def check_conditions(df, trend, symbol_key):
     last  = df.iloc[-1]
@@ -546,7 +645,12 @@ def check_conditions(df, trend, symbol_key):
         and rsi < 42
     )
 
-    bullish_fvg, bearish_fvg = fair_value_gap(df)
+    bullish_fvg,   bearish_fvg   = fair_value_gap(df)
+    bullish_choch, bearish_choch = detect_choch(df)
+    bullish_wick,  bearish_wick  = rejection_wick(df)
+
+    support_bounce    = close <= float(support)    * 1.003
+    resistance_reject = close >= float(resistance) * 0.997
 
     buy = {
         "HTF Bull":           trend == "BULL",
@@ -563,6 +667,9 @@ def check_conditions(df, trend, symbol_key):
         "Order Block":        ob_buy,
         "ATR Safe":           atr_safe,
         "FVG":                bullish_fvg,
+        "CHOCH":              bullish_choch,
+        "Support Bounce":     support_bounce,
+        "Rejection Wick":     bullish_wick,
     }
 
     sell = {
@@ -580,6 +687,9 @@ def check_conditions(df, trend, symbol_key):
         "Order Block":        ob_sell,
         "ATR Safe":           atr_safe,
         "FVG":                bearish_fvg,
+        "CHOCH":              bearish_choch,
+        "Resistance Reject":  resistance_reject,
+        "Rejection Wick":     bearish_wick,
     }
 
     buy_score  = sum(buy.values())
@@ -588,7 +698,58 @@ def check_conditions(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score, rsi, close, atr, adx
 
 # ═══════════════════════════════════════════════════════════════
-# LEVELS — Institutional Single TP Model
+# ADAPTIVE SCORING ENGINE
+# ═══════════════════════════════════════════════════════════════
+def adaptive_score(df, trend, symbol_key):
+    buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(
+        df, trend, symbol_key
+    )
+
+    regime = detect_market_regime(df)
+
+    rev_buy,  rev_sell  = reversal_signal(df, symbol_key)
+    bo_buy,   bo_sell   = breakout_signal(df)
+
+    if regime == "TREND":
+        buy_score  *= TREND_WEIGHT
+        sell_score *= TREND_WEIGHT
+
+    elif regime == "RANGE":
+        if rev_buy:
+            buy_score  += 3 * REVERSAL_WEIGHT
+        if rev_sell:
+            sell_score += 3 * REVERSAL_WEIGHT
+
+    elif regime == "BREAKOUT":
+        if bo_buy:
+            buy_score  += 4 * BREAKOUT_WEIGHT
+        if bo_sell:
+            sell_score += 4 * BREAKOUT_WEIGHT
+
+    else:  # MIXED
+        if rev_buy:
+            buy_score  += 2
+        if rev_sell:
+            sell_score += 2
+        if bo_buy:
+            buy_score  += 2
+        if bo_sell:
+            sell_score += 2
+
+    return (
+        buy,
+        sell,
+        int(round(buy_score)),
+        int(round(sell_score)),
+        rsi,
+        close,
+        atr,
+        adx,
+        regime
+    )
+
+# ═══════════════════════════════════════════════════════════════
+# LEVELS — Single TP Model
 # ═══════════════════════════════════════════════════════════════
 def calc_levels(price, direction, atr, symbol_key, df, rr):
     min_sl   = MARKETS[symbol_key]["min_sl"]
@@ -608,7 +769,6 @@ def calc_levels(price, direction, atr, symbol_key, df, rr):
 
     if adx_now > 35:
         sl_dist *= 1.12
-
     if symbol_key == "BTC/USD":
         sl_dist *= 1.20
 
@@ -647,11 +807,11 @@ def calc_levels(price, direction, atr, symbol_key, df, rr):
 # DYNAMIC RISK
 # ═══════════════════════════════════════════════════════════════
 def dynamic_risk(score):
-    if score >= 12:
-        return 75
-    elif score >= 10:
-        return 50
-    return 30
+    if score >= 13:
+        return 60
+    elif score >= 11:
+        return 45
+    return 25
 
 # ═══════════════════════════════════════════════════════════════
 # LOT SIZE
@@ -666,7 +826,7 @@ def lot_for_risk(price, sl, symbol_key, risk):
 # ═══════════════════════════════════════════════════════════════
 # SIGNAL JOURNAL
 # ═══════════════════════════════════════════════════════════════
-def log_signal(symbol, direction, score, rr, entry, sl, tp, session):
+def log_signal(symbol, direction, score, rr, entry, sl, tp, session, regime):
     file_exists = os.path.isfile("signals_log.csv")
 
     with open("signals_log.csv", "a", newline="") as f:
@@ -675,14 +835,14 @@ def log_signal(symbol, direction, score, rr, entry, sl, tp, session):
         if not file_exists:
             writer.writerow([
                 "version", "timestamp", "symbol", "direction",
-                "score", "rr", "entry", "sl", "tp", "session"
+                "score", "rr", "entry", "sl", "tp", "session", "regime"
             ])
 
         writer.writerow([
-            "v16.5-institutional",
+            "v16.5-hybrid-engine",
             datetime.now(timezone.utc).isoformat(),
             symbol, direction, score, rr,
-            entry, sl, tp, session
+            entry, sl, tp, session, regime
         ])
 
 # ═══════════════════════════════════════════════════════════════
@@ -730,45 +890,51 @@ def process(symbol_key):
         log.info("REJECTED BTC/USD HTF NEUTRAL")
         return
 
-    buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(
+    buy, sell, buy_score, sell_score, rsi, close, atr, adx, regime = adaptive_score(
         df, trend, symbol_key
     )
 
-    # ═══════════════════════════════════════════════════════════
-    # SIMPLE DEBUG LOG
-    # ═══════════════════════════════════════════════════════════
     best_direction = "BUY" if buy_score >= sell_score else "SELL"
-    best_score     = max(buy_score, sell_score)
+    best           = max(buy_score, sell_score)
 
     log.info(
-        f"📊 {symbol_key} | {best_direction} | "
-        f"Score {best_score}/14 | BUY {buy_score} | SELL {sell_score}"
+        f"{symbol_key} | Regime: {regime} | "
+        f"BUY {buy_score} | SELL {sell_score} | "
+        f"RSI {rsi:.1f} | ADX {adx:.1f}"
     )
 
-    best = max(buy_score, sell_score)
-
-    if best >= 12:
-        rr = 2.8
-    elif best >= 10:
-        rr = 2.3
+    # Adaptive RR based on score
+    if best >= 13:
+        rr = 4.0
+    elif best >= 11:
+        rr = 3.5
+    elif best >= 9:
+        rr = 3.0
     else:
-        rr = 2.0
+        rr = 2.4
+
+    # Regime RR boost
+    if regime == "BREAKOUT":
+        rr += 0.5
+    elif regime == "TREND":
+        rr += 0.2
 
     if session == "NY+London":
         rr += 0.2
 
-    rr = min(rr, 4.0)
+    rr = min(rr, 4.5)
 
     if adx < ADX_THRESHOLD:
         log.info(f"REJECTED {symbol_key} ADX {adx:.1f} < {ADX_THRESHOLD}")
         return
 
-    required_score = CONFIRM_THRESHOLD
+    required_score = max(CONFIRM_THRESHOLD, 8)
 
     if session == "Asian" and symbol_key != "BTC/USD":
         required_score += 1
 
-    required_score = max(required_score, 6)
+    if regime == "RANGE":
+        required_score += 1
 
     if best < required_score:
         log.info(f"REJECTED {symbol_key} score {best} < {required_score}")
@@ -813,27 +979,28 @@ def process(symbol_key):
     mt5_sym = MARKETS[symbol_key]["mt5"]
     dec     = MARKETS[symbol_key]["decimals"]
 
-    log_signal(symbol_key, direction, best, rr, price, sl, tp, session)
+    log_signal(symbol_key, direction, best, rr, price, sl, tp, session, regime)
 
     conditions_text = build_conditions_text(checks)
 
     msg = (
-        f"🚀 *v16.5 ELITE INSTITUTIONAL SIGNAL — {mt5_sym}* 🚀\n"
+        f"*v16.5 HYBRID ENGINE — {mt5_sym}*\n"
         f"_{MARKETS[symbol_key]['tier']}_\n\n"
-        f"🔥 *Action:* {'BUY 📈' if direction == 'BUY' else 'SELL 📉'}\n"
-        f"⭐ *Score:* {best}/14\n\n"
-        f"📍 *Entry:* `{price:,.{dec}f}`\n"
-        f"🛑 *SL:* `{sl:,.{dec}f}`\n"
-        f"🎯 *TP:* `{tp:,.{dec}f}` *(1:{round(actual_rr, 2)} RR)*\n\n"
-        f"📈 *RSI:* {rsi:.1f}\n"
-        f"📉 *ADX:* {adx:.1f}\n"
-        f"🌍 *HTF:* {trend}\n"
-        f"⏰ *Session:* {session}\n"
-        f"📡 *Source:* {source}\n\n"
-        f"💵 *${risk_amount} Risk Lot:* {lot:.3f}\n\n"
-        f"✅ *Elite Institutional Conditions:*\n"
+        f"*Action:* {'BUY' if direction == 'BUY' else 'SELL'}\n"
+        f"*Score:* {best}/17+\n"
+        f"*Regime:* {regime}\n\n"
+        f"*Entry:* `{price:,.{dec}f}`\n"
+        f"*SL:* `{sl:,.{dec}f}`\n"
+        f"*TP:* `{tp:,.{dec}f}` *(1:{round(actual_rr, 2)} RR)*\n\n"
+        f"*RSI:* {rsi:.1f}\n"
+        f"*ADX:* {adx:.1f}\n"
+        f"*HTF:* {trend}\n"
+        f"*Session:* {session}\n"
+        f"*Source:* {source}\n\n"
+        f"*${risk_amount} Risk Lot:* {lot:.3f}\n\n"
+        f"*Conditions Passed:*\n"
         f"{conditions_text}\n\n"
-        f"⚡ *STRICT ELITE INSTITUTIONAL TVM MODE*"
+        f"HYBRID ADAPTIVE ENGINE ACTIVE"
     )
 
     send_telegram(msg)
@@ -841,15 +1008,15 @@ def process(symbol_key):
     log.info(
         f"SIGNAL SENT {symbol_key} {direction} | "
         f"Entry: {price} | SL: {sl} | TP: {tp} | "
-        f"RR: {round(actual_rr, 2)} | Lot: {lot}"
+        f"RR: {round(actual_rr, 2)} | Lot: {lot} | Regime: {regime}"
     )
 
 # ═══════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════
 def main():
-    log.info("MOMENTUM HUNTER v16.5 ELITE INSTITUTIONAL TVM STARTED")
-    send_telegram("v16.5 Elite Institutional TVM Live")
+    log.info("MOMENTUM HUNTER v16.5 HYBRID ENGINE STARTED")
+    send_telegram("v16.5 Advanced Hybrid Engine Live")
 
     while True:
         try:
