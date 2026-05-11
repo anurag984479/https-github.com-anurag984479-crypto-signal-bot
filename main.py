@@ -1,7 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 # PEPPERSTONE MOMENTUM HUNTER v16.5 — ELITE INSTITUTIONAL TVM
-# MODERATE HIGHER-FREQUENCY PROFIT PATCH
-# Balanced gain + safety + more trades
+# PRECISION+ ADAPTIVE — SAFE FOR LIVE DEPLOYMENT
 # ✔ Spread Filter          ✔ ATR Spike Filter
 # ✔ Liquidity Sweep        ✔ Order Block
 # ✔ Fair Value Gap (FVG)   ✔ Adaptive RR
@@ -118,17 +117,17 @@ MARKETS = {
 SYMBOLS = list(MARKETS.keys())
 
 # ═══════════════════════════════════════════════════════════════
-# SETTINGS — Moderate Higher-Frequency Profit Patch
+# SETTINGS — v16.5 Higher Frequency
 # ═══════════════════════════════════════════════════════════════
-RR                  = 2.3
-ATR_MULT            = 0.38
-VOL_MULT            = 1.10      # was 1.15 — slightly easier volume entry
-ADX_THRESHOLD       = 21        # was 23  — slightly looser trend filter
-CONFIRM_THRESHOLD   = 8         # was 9   — more setups qualify
-ATR_SPIKE_MULT      = 2.0
-SIGNAL_COOLDOWN     = 1200      # was 1800 — signal every 20min vs 30min
-HTF_REFRESH         = 1500
-BTC_EXTRA_COOLDOWN  = 1800      # was 2400 — more BTC opportunity
+RR                 = 2.3
+ATR_MULT           = 0.38
+VOL_MULT           = 1.10      # was 1.15
+ADX_THRESHOLD      = 21        # was 23
+CONFIRM_THRESHOLD  = 8         # was 9
+ATR_SPIKE_MULT     = 2.0
+SIGNAL_COOLDOWN    = 1200      # was 1800
+HTF_REFRESH        = 1500
+BTC_EXTRA_COOLDOWN = 1800      # was 2400
 
 MAX_SPREAD = {
     "XAU/USD": 0.50,
@@ -141,19 +140,19 @@ MAX_SPREAD = {
 # ═══════════════════════════════════════════════════════════════
 # GLOBAL SAFETY STATE
 # ═══════════════════════════════════════════════════════════════
-daily_pnl            = 0
-daily_loss_limit     = -300
+daily_pnl = 0
+daily_loss_limit = -300
 MAX_CONSECUTIVE_LOSSES = 4
-consecutive_losses   = 0
-last_reset_day       = datetime.now(timezone.utc).day
+consecutive_losses = 0
+last_reset_day = datetime.now(timezone.utc).day
 
 # ═══════════════════════════════════════════════════════════════
 # STATE
 # ═══════════════════════════════════════════════════════════════
-_signal_sent           = {s: 0 for s in SYMBOLS}
-_htf_cache             = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
+_signal_sent = {s: 0 for s in SYMBOLS}
+_htf_cache = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
 _last_signal_direction = {}
-_last_signal_time      = {}
+_last_signal_time = {}
 
 # ═══════════════════════════════════════════════════════════════
 # DAILY AUTO-RESET
@@ -164,9 +163,9 @@ def reset_daily_stats():
     current_day = datetime.now(timezone.utc).day
 
     if current_day != last_reset_day:
-        daily_pnl          = 0
+        daily_pnl = 0
         consecutive_losses = 0
-        last_reset_day     = current_day
+        last_reset_day = current_day
         log.info("✅ Daily stats reset")
 
 # ═══════════════════════════════════════════════════════════════
@@ -259,7 +258,7 @@ def duplicate_signal(symbol_key, direction):
         return True
 
     _last_signal_direction[symbol_key] = direction
-    _last_signal_time[symbol_key]      = now
+    _last_signal_time[symbol_key] = now
 
     return False
 
@@ -340,7 +339,7 @@ def fetch_yf(ticker, period="15d", interval="5m"):
 def fetch_ccxt(src_name, sym, tf="5m", limit=300):
     try:
         exchange = getattr(ccxt, src_name)()
-        ohlcv    = exchange.fetch_ohlcv(sym, timeframe=tf, limit=limit)
+        ohlcv = exchange.fetch_ohlcv(sym, timeframe=tf, limit=limit)
 
         return pd.DataFrame(
             ohlcv,
@@ -354,7 +353,7 @@ def get_entry_data(symbol_key):
     if symbol_key == "BTC/USD":
         for src in ["coinbase", "binance"]:
             pair = "BTC/USDT" if src == "binance" else "BTC/USD"
-            df   = fetch_ccxt(src, pair)
+            df = fetch_ccxt(src, pair)
 
             if df is not None and len(df) > 100:
                 return df, src
@@ -373,7 +372,7 @@ def get_htf(symbol_key):
     if symbol_key == "BTC/USD":
         for src in ["coinbase", "binance"]:
             pair = "BTC/USDT" if src == "binance" else "BTC/USD"
-            df   = fetch_ccxt(src, pair, tf="15m", limit=300)
+            df = fetch_ccxt(src, pair, tf="15m", limit=300)
 
             if df is not None and len(df) > 100:
                 return df
@@ -408,7 +407,8 @@ def get_sr_levels(df, lookback=50):
     )
 
 def add_ind(df):
-    df  = df.copy()
+    df = df.copy()
+
     cl  = pd.to_numeric(df["close"])
     hi  = pd.to_numeric(df["high"])
     lo  = pd.to_numeric(df["low"])
@@ -430,7 +430,7 @@ def add_ind(df):
 # ═══════════════════════════════════════════════════════════════
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
-    now   = time.time()
+    now = time.time()
 
     if now - cache["ts"] < HTF_REFRESH:
         return cache["trend"]
@@ -440,7 +440,7 @@ def get_trend(symbol_key):
     if df is None or len(df) < 50:
         return "NEUTRAL"
 
-    df   = add_ind(df)
+    df = add_ind(df)
     last = df.iloc[-1]
 
     if last["ema21"] > last["ema50"]:
@@ -451,7 +451,7 @@ def get_trend(symbol_key):
         trend = "NEUTRAL"
 
     cache["trend"] = trend
-    cache["ts"]    = now
+    cache["ts"] = now
 
     return trend
 
@@ -697,7 +697,7 @@ def log_signal(symbol, direction, score, rr, entry, sl, tp, session):
             ])
 
         writer.writerow([
-            "v16.5-hf",
+            "v16.5-institutional",
             datetime.now(timezone.utc).isoformat(),
             symbol, direction, score, rr,
             entry, sl, tp, session
@@ -740,7 +740,7 @@ def process(symbol_key):
         log.info(f"❌ {symbol_key} rejected — spread {spread:.4f} > max {MAX_SPREAD[symbol_key]}")
         return
 
-    df    = add_ind(df)
+    df = add_ind(df)
     price = float(df.iloc[-1]["close"])
 
     if not (MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]):
@@ -848,7 +848,7 @@ def process(symbol_key):
     conditions_text = build_conditions_text(checks)
 
     msg = (
-        f"🚀 *v16.5 ELITE SIGNAL — {mt5}* 🚀\n"
+        f"🚀 *v16.5 ELITE INSTITUTIONAL SIGNAL — {mt5}* 🚀\n"
         f"_{MARKETS[symbol_key]['tier']}_\n\n"
         f"🔥 *Action:* {'BUY 📈' if direction == 'BUY' else 'SELL 📉'}\n"
         f"⭐ *Score:* {best}/14\n\n"
@@ -861,9 +861,9 @@ def process(symbol_key):
         f"⏰ *Session:* {session}\n"
         f"📡 *Source:* {source}\n\n"
         f"💵 *${risk_amount} Risk Lot:* {lot:.3f}\n\n"
-        f"✅ *Elite Conditions:*\n"
+        f"✅ *Elite Institutional Conditions:*\n"
         f"{conditions_text}\n\n"
-        f"⚡ *STRICT ELITE TVM MODE*"
+        f"⚡ *STRICT ELITE INSTITUTIONAL TVM MODE*"
     )
 
     send_telegram(msg)
@@ -878,8 +878,8 @@ def process(symbol_key):
 # MAIN
 # ═══════════════════════════════════════════════════════════════
 def main():
-    log.info("🚀 MOMENTUM HUNTER v16.5 MODERATE HF PATCH STARTED")
-    send_telegram("🚀 v16.5 Moderate Higher-Frequency Patch — Live")
+    log.info("🚀 MOMENTUM HUNTER v16.5 ELITE INSTITUTIONAL TVM STARTED")
+    send_telegram("🚀 v16.5 Elite Institutional TVM — Live")
 
     while True:
         try:
@@ -899,6 +899,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-The only meaningful differences from the previous version are the 5 settings values at the top. Everything else — all safety guards, scoring logic, TP model, debug logging — is identical. To go back to strict institutional mode just swap those 5 numbers back.​​​​​​​​​​​​​​​​
