@@ -1,15 +1,15 @@
+═════════════════════════════════════════
+# PEPPERSTONE MOMENTUM HUNTER v14.0 — ELITE 4 MARKET EDITION
+# 15m HTF Bias + 5m Entry
+# Markets:
+# 🥇 Gold (XAU/USD)
+# 🥈 Silver (XAG/USD)
+# 🥉 BTC/USD
+# 🏅 NAS100
+# Strict premium A+ setups only
+# Railway-ready + Telegram + enhanced logging
+# ═══════════════════════════════════════════════════════════════
 
-# PEPPERSTONE MOMENTUM HUNTER v16.0 — HYBRID PRO
-# Best balance:
-# ✔ More trades
-# ✔ Better gains
-# ✔ 5-year optimized
-# ✔ 1:2.5 RR
-# ✔ Strong BOS
-# ✔ Session filtering
-# ✔ Gold precision
-# ✔ BTC HTF mandatory
-# ═════════════════════════════════════════
 import time
 import logging
 import requests
@@ -30,7 +30,7 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v16.0")
+log = logging.getLogger("v14.0")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -125,12 +125,12 @@ SYMBOLS = list(MARKETS.keys())
 # ═══════════════════════════════════════════════════════════════
 # STRATEGY SETTINGS
 # ═══════════════════════════════════════════════════════════════
-RR = 2.5
+RR = 2.0
 ATR_MULT = 0.28
 VOL_MULT = 1.15
 ADX_THRESHOLD = 22
 CONFIRM_THRESHOLD = 6
-SIGNAL_COOLDOWN = 2400
+SIGNAL_COOLDOWN = 1200
 HTF_REFRESH = 1800
 
 
@@ -341,8 +341,8 @@ def check_conditions(df, trend):
     strong_body = body_pct > 0.60
     vol_ok = volma > 0 and vol > volma * VOL_MULT
 
-    bullish_break = close > df.iloc[-2]["high"] + atr * 0.15
-    bearish_break = close < df.iloc[-2]["low"] - atr * 0.15
+    bullish_break = close > df.iloc[-2]["high"]
+    bearish_break = close < df.iloc[-2]["low"]
 
     buy = {
         "HTF Bull": trend == "BULL",
@@ -442,8 +442,6 @@ def process(symbol_key):
         return
 
     trend = get_trend(symbol_key)
-    if symbol_key == "BTC/USD" and trend == "NEUTRAL":
-        return
 
     buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(df, trend)
 
@@ -454,29 +452,7 @@ def process(symbol_key):
         log.info(f"❌ {symbol_key} rejected due to weak ADX: {adx:.1f}")
         return
 
-    required_score = CONFIRM_THRESHOLD
-
-# Asian stricter
-    if session == "Asian":
-        required_score += 1
-
-# Gold precision
-    if symbol_key == "XAU/USD":
-        required_score = max(required_score, 7)
-
-# Silver precision
-    if symbol_key == "XAG/USD" and session == "Asian":
-        required_score = max(required_score, 7)
-
-# NAS precision
-    if symbol_key == "NAS100" and session == "Asian":
-        required_score = max(required_score, 7)
-
-# US500 precision
-    if symbol_key == "US500" and session == "Asian":
-        required_score = max(required_score, 7)
-
-    if best < required_score:
+    if best < CONFIRM_THRESHOLD:
         return
 
     now = time.time()
@@ -505,7 +481,7 @@ _{MARKETS[symbol_key]["tier"]}_
 
 📍 *Entry:* ${price:,.{dec}f}
 🛑 *SL:* ${sl:,.{dec}f}
-🎯 *TP:* ${tp:,.{dec}f} *(1:2.5 RR)*
+🎯 *TP:* ${tp:,.{dec}f} *(1:2 RR)*
 
 📈 *RSI:* {rsi:.1f}
 📉 *ADX:* {adx:.1f}
@@ -529,7 +505,7 @@ _{MARKETS[symbol_key]["tier"]}_
 # ═══════════════════════════════════════════════════════════════
 def main():
     log.info("═" * 60)
-    log.info("🚀 MOMENTUM HUNTER v16.0 STARTED")
+    log.info("🚀 MOMENTUM HUNTER v14.0 STARTED")
     log.info("🎯 A+ FILTER ONLY | STRICT ELITE MODE")
     log.info("📊 15m HTF + 5m Entry")
     log.info("🥇 Gold | 🥈 Silver | 🥉 BTC | 🏅 NAS100 | 🇺🇸 US500")
@@ -556,4 +532,3 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
