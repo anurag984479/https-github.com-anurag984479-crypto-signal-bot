@@ -1,26 +1,7 @@
-Full v17.0 code with all patches merged:
-
 # ═══════════════════════════════════════════════════════════════
 # PEPPERSTONE MOMENTUM HUNTER v17.0 — INSTITUTIONAL PRECISION
 # ADVANCED HYBRID ENGINE — FULLY LOADED
-# ✔ Market Regime Detection  ✔ Adaptive Scoring
-# ✔ Reversal Signal Module   ✔ Breakout Signal Module
-# ✔ CHOCH Reversal           ✔ Rejection Wick
-# ✔ Support Bounce           ✔ Resistance Reject
-# ✔ Fair Value Gap           ✔ Precision Entry Zones
-# ✔ Adaptive RR              ✔ Dynamic Risk
-# ✔ ICT / TVM Kill Zones     ✔ Session Precision
-# ✔ 5 Market Elite Build     ✔ Single TP (SR/Liq)
-# ✔ Trade Journal            ✔ News Blackout
-# ✔ Weekend Filter           ✔ Daily Loss Lock
-# ✔ Loss Streak Breaker      ✔ Daily Auto-Reset
-# ✔ Trade Result Tracking    ✔ Duplicate Signal Decay
-# ✔ CSV Rotation             ✔ BTC Overtrading Guard
-# ✔ Telegram Retry           ✔ VPS Watchdog
-# ✔ Dashboard Logging        ✔ Execute Trade Placeholder
-# ✔ PnL Sync Placeholder
 # ═══════════════════════════════════════════════════════════════
-
 import time
 import logging
 import requests
@@ -35,9 +16,6 @@ import yfinance as yf
 
 SYSTEM_VERSION = "v17.0-INSTITUTIONAL-PRECISION"
 
-# ═══════════════════════════════════════════════════════════════
-# LOGGING
-# ═══════════════════════════════════════════════════════════════
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(message)s",
@@ -45,22 +23,12 @@ logging.basicConfig(
 )
 log = logging.getLogger("v17.0-institutional")
 
-# ═══════════════════════════════════════════════════════════════
-# TELEGRAM — credentials via environment variables
-# Linux:   export TOKEN="your_token"
-#          export CHAT_ID="your_chat_id"
-# Windows: set TOKEN=your_token
-#          set CHAT_ID=your_chat_id
-# ═══════════════════════════════════════════════════════════════
 TOKEN = os.getenv("TOKEN", "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
 if not TOKEN or not CHAT_ID:
     raise ValueError("Missing TOKEN or CHAT_ID")
 
-# ═══════════════════════════════════════════════════════════════
-# RISK CONFIG
-# ═══════════════════════════════════════════════════════════════
 DOLLAR_PER_LOT = {
     "XAU/USD": 100.0,
     "XAG/USD": 5000.0,
@@ -69,9 +37,6 @@ DOLLAR_PER_LOT = {
     "US500": 10.0,
 }
 
-# ═══════════════════════════════════════════════════════════════
-# MARKETS
-# ═══════════════════════════════════════════════════════════════
 MARKETS = {
     "XAU/USD": {
         "mt5": "XAUUSD.Qraw",
@@ -127,9 +92,6 @@ MARKETS = {
 
 SYMBOLS = list(MARKETS.keys())
 
-# ═══════════════════════════════════════════════════════════════
-# SETTINGS — v17.0 Institutional Precision
-# ═══════════════════════════════════════════════════════════════
 RR                 = 3.2
 ATR_MULT           = 0.42
 VOL_MULT           = 1.05
@@ -157,27 +119,18 @@ MAX_SPREAD = {
     "US500": 1.5,
 }
 
-# ═══════════════════════════════════════════════════════════════
-# GLOBAL SAFETY STATE
-# ═══════════════════════════════════════════════════════════════
 daily_pnl              = 0
 daily_loss_limit       = -300
 MAX_CONSECUTIVE_LOSSES = 4
 consecutive_losses     = 0
 last_reset_day         = datetime.now(timezone.utc).day
 
-# ═══════════════════════════════════════════════════════════════
-# STATE
-# ═══════════════════════════════════════════════════════════════
 _signal_sent           = {s: 0 for s in SYMBOLS}
 _htf_cache             = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
 _last_signal_direction = {}
 _last_signal_time      = {}
 
 
-# ═══════════════════════════════════════════════════════════════
-# DAILY AUTO-RESET
-# ═══════════════════════════════════════════════════════════════
 def reset_daily_stats():
     global daily_pnl, consecutive_losses, last_reset_day
     current_day = datetime.now(timezone.utc).day
@@ -188,9 +141,6 @@ def reset_daily_stats():
         log.info("Daily stats reset")
 
 
-# ═══════════════════════════════════════════════════════════════
-# TRADE RESULT TRACKER
-# ═══════════════════════════════════════════════════════════════
 def update_trade_result(pnl):
     global daily_pnl, consecutive_losses
     daily_pnl += pnl
@@ -200,10 +150,6 @@ def update_trade_result(pnl):
         consecutive_losses = 0
 
 
-# ═══════════════════════════════════════════════════════════════
-# PNL SYNC PLACEHOLDER
-# Replace with broker account history sync
-# ═══════════════════════════════════════════════════════════════
 def sync_real_pnl():
     try:
         return daily_pnl
@@ -211,9 +157,6 @@ def sync_real_pnl():
         return daily_pnl
 
 
-# ═══════════════════════════════════════════════════════════════
-# VPS WATCHDOG
-# ═══════════════════════════════════════════════════════════════
 def watchdog():
     try:
         with open("heartbeat.txt", "w") as f:
@@ -222,9 +165,6 @@ def watchdog():
         log.error(f"Watchdog failure: {e}")
 
 
-# ═══════════════════════════════════════════════════════════════
-# DASHBOARD LOG
-# ═══════════════════════════════════════════════════════════════
 def dashboard_log(symbol, direction, score, regime, rr):
     log.info(
         f"[DASHBOARD] {symbol} | {direction} | "
@@ -232,10 +172,6 @@ def dashboard_log(symbol, direction, score, regime, rr):
     )
 
 
-# ═══════════════════════════════════════════════════════════════
-# EXECUTE TRADE PLACEHOLDER
-# Replace with MetaTrader5 order_send()
-# ═══════════════════════════════════════════════════════════════
 def execute_trade(symbol_key, direction, lot, entry, sl, tp):
     try:
         log.info(
@@ -248,9 +184,6 @@ def execute_trade(symbol_key, direction, lot, entry, sl, tp):
         return False
 
 
-# ═══════════════════════════════════════════════════════════════
-# TELEGRAM WITH RETRY
-# ═══════════════════════════════════════════════════════════════
 def send_telegram(msg):
     for attempt in range(3):
         try:
@@ -271,9 +204,6 @@ def send_telegram(msg):
     return False
 
 
-# ═══════════════════════════════════════════════════════════════
-# SESSION / TVM
-# ═══════════════════════════════════════════════════════════════
 def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
     s, e = MARKETS[symbol_key]["sessions"]
@@ -286,9 +216,6 @@ def in_session(symbol_key):
     return True, "Asian"
 
 
-# ═══════════════════════════════════════════════════════════════
-# SAFETY GUARDS
-# ═══════════════════════════════════════════════════════════════
 def weekend_block(symbol_key):
     weekday = datetime.now(timezone.utc).weekday()
     if weekday >= 5 and symbol_key != "BTC/USD":
@@ -325,10 +252,6 @@ def duplicate_signal(symbol_key, direction):
     return False
 
 
-# ═══════════════════════════════════════════════════════════════
-# ECONOMIC NEWS BLOCK
-# Replace body with real API when available
-# ═══════════════════════════════════════════════════════════════
 def economic_news_block():
     try:
         h = datetime.now(timezone.utc).hour
@@ -338,9 +261,6 @@ def economic_news_block():
         return False
 
 
-# ═══════════════════════════════════════════════════════════════
-# CSV ROTATION
-# ═══════════════════════════════════════════════════════════════
 def rotate_log():
     file_path = "signals_log.csv"
     if os.path.isfile(file_path):
@@ -349,9 +269,6 @@ def rotate_log():
             os.rename(file_path, new_name)
 
 
-# ═══════════════════════════════════════════════════════════════
-# SAFE RR CALCULATION
-# ═══════════════════════════════════════════════════════════════
 def safe_rr(price, sl, tp):
     risk_distance = abs(price - sl)
     if risk_distance <= 0:
@@ -359,9 +276,6 @@ def safe_rr(price, sl, tp):
     return abs(tp - price) / risk_distance
 
 
-# ═══════════════════════════════════════════════════════════════
-# ATR SAFE CHECK
-# ═══════════════════════════════════════════════════════════════
 def atr_is_safe(df, atr):
     atr_mean = df["atr"].rolling(50).mean().iloc[-1]
     if pd.isna(atr_mean) or atr_mean == 0:
@@ -369,9 +283,6 @@ def atr_is_safe(df, atr):
     return atr < atr_mean * ATR_SPIKE_MULT
 
 
-# ═══════════════════════════════════════════════════════════════
-# TELEGRAM MESSAGE LENGTH GUARD
-# ═══════════════════════════════════════════════════════════════
 def build_conditions_text(checks):
     conditions_text = "\n".join([f" {k}" for k, v in checks.items() if v])
     if len(conditions_text) > 1200:
@@ -379,9 +290,6 @@ def build_conditions_text(checks):
     return conditions_text
 
 
-# ═══════════════════════════════════════════════════════════════
-# DATA FETCH
-# ═══════════════════════════════════════════════════════════════
 def fetch_yf(ticker, period="15d", interval="5m"):
     try:
         raw = yf.download(
@@ -447,9 +355,6 @@ def get_spread(df):
     return avg_range * 0.18
 
 
-# ═══════════════════════════════════════════════════════════════
-# INDICATORS
-# ═══════════════════════════════════════════════════════════════
 def get_sr_levels(df, lookback=50):
     return (
         df["low"].tail(lookback).min(),
@@ -474,9 +379,6 @@ def add_ind(df):
     return df
 
 
-# ═══════════════════════════════════════════════════════════════
-# HTF TREND
-# ═══════════════════════════════════════════════════════════════
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
     now   = time.time()
@@ -498,9 +400,6 @@ def get_trend(symbol_key):
     return trend
 
 
-# ═══════════════════════════════════════════════════════════════
-# FAIR VALUE GAP
-# ═══════════════════════════════════════════════════════════════
 def fair_value_gap(df):
     if len(df) < 3:
         return False, False
@@ -511,9 +410,6 @@ def fair_value_gap(df):
     return bullish_fvg, bearish_fvg
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHOCH REVERSAL DETECTION
-# ═══════════════════════════════════════════════════════════════
 def detect_choch(df):
     if len(df) < 6:
         return False, False
@@ -525,9 +421,6 @@ def detect_choch(df):
     return bullish_choch, bearish_choch
 
 
-# ═══════════════════════════════════════════════════════════════
-# REJECTION WICK DETECTION
-# ═══════════════════════════════════════════════════════════════
 def rejection_wick(df):
     last  = df.iloc[-1]
     high  = float(last["high"])
@@ -542,9 +435,6 @@ def rejection_wick(df):
     return bullish_rejection, bearish_rejection
 
 
-# ═══════════════════════════════════════════════════════════════
-# PREVIOUS CANDLE PRECISION ZONES
-# ═══════════════════════════════════════════════════════════════
 def previous_candle_zones(df):
     if len(df) < 2:
         return None
@@ -565,9 +455,6 @@ def previous_candle_zones(df):
     }
 
 
-# ═══════════════════════════════════════════════════════════════
-# PRECISION ENTRY ENGINE
-# ═══════════════════════════════════════════════════════════════
 def precision_entry(df, symbol_key):
     zones = previous_candle_zones(df)
     if not zones:
@@ -578,9 +465,6 @@ def precision_entry(df, symbol_key):
     return precision_buy, precision_sell
 
 
-# ═══════════════════════════════════════════════════════════════
-# MARKET REGIME DETECTION
-# ═══════════════════════════════════════════════════════════════
 def detect_market_regime(df):
     last    = df.iloc[-1]
     adx     = float(last["adx"])
@@ -597,9 +481,6 @@ def detect_market_regime(df):
     return "MIXED"
 
 
-# ═══════════════════════════════════════════════════════════════
-# REVERSAL SIGNAL MODULE
-# ═══════════════════════════════════════════════════════════════
 def reversal_signal(df, symbol_key):
     last  = df.iloc[-1]
     rsi   = float(last["rsi"])
@@ -610,9 +491,6 @@ def reversal_signal(df, symbol_key):
     return buy_reversal, sell_reversal
 
 
-# ═══════════════════════════════════════════════════════════════
-# BREAKOUT SIGNAL MODULE
-# ═══════════════════════════════════════════════════════════════
 def breakout_signal(df):
     last  = df.iloc[-1]
     prev  = df.iloc[-2]
@@ -630,9 +508,6 @@ def breakout_signal(df):
     return bullish, bearish
 
 
-# ═══════════════════════════════════════════════════════════════
-# CONDITIONS — 20-point scoring (17 + Precision Zone)
-# ═══════════════════════════════════════════════════════════════
 def check_conditions(df, trend, symbol_key):
     last  = df.iloc[-1]
     rsi   = float(last["rsi"])
@@ -707,10 +582,10 @@ def check_conditions(df, trend, symbol_key):
         and rsi < 42
     )
 
-    bullish_fvg,   bearish_fvg   = fair_value_gap(df)
-    bullish_choch, bearish_choch = detect_choch(df)
-    bullish_wick,  bearish_wick  = rejection_wick(df)
-    precision_buy, precision_sell = precision_entry(df, symbol_key)
+    bullish_fvg,    bearish_fvg    = fair_value_gap(df)
+    bullish_choch,  bearish_choch  = detect_choch(df)
+    bullish_wick,   bearish_wick   = rejection_wick(df)
+    precision_buy,  precision_sell = precision_entry(df, symbol_key)
 
     support_bounce    = close <= float(support)    * 1.003
     resistance_reject = close >= float(resistance) * 0.997
@@ -763,9 +638,6 @@ def check_conditions(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score, rsi, close, atr, adx
 
 
-# ═══════════════════════════════════════════════════════════════
-# ADAPTIVE SCORING ENGINE
-# ═══════════════════════════════════════════════════════════════
 def adaptive_score(df, trend, symbol_key):
     buy, sell, buy_score, sell_score, rsi, close, atr, adx = check_conditions(
         df, trend, symbol_key
@@ -779,19 +651,16 @@ def adaptive_score(df, trend, symbol_key):
     if regime == "TREND":
         buy_score  *= TREND_WEIGHT
         sell_score *= TREND_WEIGHT
-
     elif regime == "RANGE":
         if rev_buy:
             buy_score  += 3 * REVERSAL_WEIGHT
         if rev_sell:
             sell_score += 3 * REVERSAL_WEIGHT
-
     elif regime == "BREAKOUT":
         if bo_buy:
             buy_score  += 4 * BREAKOUT_WEIGHT
         if bo_sell:
             sell_score += 4 * BREAKOUT_WEIGHT
-
     else:
         if rev_buy:
             buy_score  += 2
@@ -815,9 +684,6 @@ def adaptive_score(df, trend, symbol_key):
     )
 
 
-# ═══════════════════════════════════════════════════════════════
-# LEVELS — Single TP Model
-# ═══════════════════════════════════════════════════════════════
 def calc_levels(price, direction, atr, symbol_key, df, rr):
     min_sl   = MARKETS[symbol_key]["min_sl"]
     decimals = MARKETS[symbol_key]["decimals"]
@@ -871,9 +737,6 @@ def calc_levels(price, direction, atr, symbol_key, df, rr):
     return sl, tp, sl_dist
 
 
-# ═══════════════════════════════════════════════════════════════
-# DYNAMIC RISK
-# ═══════════════════════════════════════════════════════════════
 def dynamic_risk(score):
     if score >= 13:
         return 60
@@ -882,9 +745,6 @@ def dynamic_risk(score):
     return 25
 
 
-# ═══════════════════════════════════════════════════════════════
-# LOT SIZE
-# ═══════════════════════════════════════════════════════════════
 def lot_for_risk(price, sl, symbol_key, risk):
     sl_dist = abs(price - sl)
     if sl_dist == 0:
@@ -893,9 +753,6 @@ def lot_for_risk(price, sl, symbol_key, risk):
     return max(round(risk / (sl_dist * dpl), 3), 0.01)
 
 
-# ═══════════════════════════════════════════════════════════════
-# SIGNAL JOURNAL
-# ═══════════════════════════════════════════════════════════════
 def log_signal(symbol, direction, score, rr, entry, sl, tp, session, regime):
     file_exists = os.path.isfile("signals_log.csv")
     with open("signals_log.csv", "a", newline="") as f:
@@ -913,9 +770,6 @@ def log_signal(symbol, direction, score, rr, entry, sl, tp, session, regime):
         ])
 
 
-# ═══════════════════════════════════════════════════════════════
-# PROCESS (per symbol)
-# ═══════════════════════════════════════════════════════════════
 def process(symbol_key):
     log.info(f"Scanning {symbol_key}")
 
@@ -1048,29 +902,28 @@ def process(symbol_key):
     dashboard_log(symbol_key, direction, best, regime, rr)
     log_signal(symbol_key, direction, best, rr, price, sl, tp, session, regime)
     execute_trade(symbol_key, direction, lot, price, sl, tp)
-
-    daily_pnl_synced = sync_real_pnl()
+    sync_real_pnl()
 
     conditions_text = build_conditions_text(checks)
 
     msg = (
-        f"*{SYSTEM_VERSION}*\n"
-        f"*{mt5_sym}* | {MARKETS[symbol_key]['tier']}\n\n"
-        f"*Action:* {'BUY' if direction == 'BUY' else 'SELL'}\n"
-        f"*Score:* {best}\n"
-        f"*Regime:* {regime}\n\n"
-        f"*Entry:* `{price:,.{dec}f}`\n"
-        f"*SL:* `{sl:,.{dec}f}`\n"
-        f"*TP:* `{tp:,.{dec}f}` *(1:{round(actual_rr, 2)} RR)*\n\n"
-        f"*RSI:* {rsi:.1f}\n"
-        f"*ADX:* {adx:.1f}\n"
-        f"*HTF:* {trend}\n"
-        f"*Session:* {session}\n"
-        f"*Source:* {source}\n\n"
-        f"*${risk_amount} Risk Lot:* {lot:.3f}\n\n"
-        f"*Conditions Passed:*\n"
+        f"🚀 *{SYSTEM_VERSION} — {mt5_sym}* 🚀\n"
+        f"⭐⭐⭐⭐⭐ {MARKETS[symbol_key]['tier']}\n\n"
+        f"🔥 *Action:* {'BUY 📈' if direction == 'BUY' else 'SELL 📉'}\n"
+        f"⭐ *Score:* {best}/20\n\n"
+        f"📍 *Entry:* {price:,.{dec}f}\n"
+        f"🛑 *SL:* {sl:,.{dec}f}\n"
+        f"🎯 *TP:* {tp:,.{dec}f} *(1:{round(actual_rr, 2)} RR)*\n\n"
+        f"📈 *RSI:* {rsi:.1f}\n"
+        f"📉 *ADX:* {adx:.1f}\n"
+        f"🌍 *HTF:* {trend}\n"
+        f"🧠 *Regime:* {regime}\n"
+        f"⏰ *Session:* {session}\n"
+        f"📡 *Source:* {source}\n\n"
+        f"💵 *${risk_amount} Risk Lot:* {lot:.3f}\n\n"
+        f"✅ *Elite Institutional Conditions:*\n"
         f"{conditions_text}\n\n"
-        f"INSTITUTIONAL PRECISION ENGINE ACTIVE"
+        f"⚡ *STRICT ELITE INSTITUTIONAL TVM MODE*"
     )
 
     send_telegram(msg)
@@ -1082,9 +935,6 @@ def process(symbol_key):
     )
 
 
-# ═══════════════════════════════════════════════════════════════
-# MAIN
-# ═══════════════════════════════════════════════════════════════
 def main():
     log.info(f"MOMENTUM HUNTER {SYSTEM_VERSION} STARTED")
     send_telegram(f"{SYSTEM_VERSION} Live")
