@@ -760,12 +760,20 @@ def process(symbol_key):
     # ═══════════════════════════════════════════════════════════
     # DEBUG SCORING LOG
     # ═══════════════════════════════════════════════════════════
+    best_direction = "BUY" if buy_score >= sell_score else "SELL"
+    best_score     = max(buy_score, sell_score)
+
     log.info(
-        f"📊 {symbol_key} | BUY Score: {buy_score}/14 | SELL Score: {sell_score}/14 | "
+        f"📊 {symbol_key} | Direction: {best_direction} | "
+        f"Score: {best_score}/14 | BUY: {buy_score} | SELL: {sell_score} | "
         f"RSI: {rsi:.1f} | ADX: {adx:.1f} | Trend: {trend} | Session: {session}"
     )
-    log.info(f"📈 BUY  Passed: {[k for k, v in buy.items()  if v]}")
-    log.info(f"📉 SELL Passed: {[k for k, v in sell.items() if v]}")
+
+    best_checks = buy if best_direction == "BUY" else sell
+    log.info(
+        f"✅ {symbol_key} {best_direction} Conditions Passed: "
+        f"{[k for k, v in best_checks.items() if v]}"
+    )
 
     best = max(buy_score, sell_score)
 
@@ -860,7 +868,11 @@ def process(symbol_key):
 
     send_telegram(msg)
 
-    log.info(f"🚀 SIGNAL SENT {symbol_key} {direction} | Entry: {price} | SL: {sl} | TP: {tp} | RR: {round(actual_rr, 2)} | Lot: {lot}")
+    log.info(
+        f"🚀 SIGNAL SENT {symbol_key} {direction} | "
+        f"Entry: {price} | SL: {sl} | TP: {tp} | "
+        f"RR: {round(actual_rr, 2)} | Lot: {lot}"
+    )
 
 # ═══════════════════════════════════════════════════════════════
 # MAIN
