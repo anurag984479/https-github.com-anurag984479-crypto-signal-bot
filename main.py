@@ -1,4 +1,4 @@
-═════════════════════════════════════════
+#═════════════════════════════════════════
 # PEPPERSTONE MOMENTUM HUNTER v14.0 — ELITE 4 MARKET EDITION
 # 15m HTF Bias + 5m Entry
 # Markets:
