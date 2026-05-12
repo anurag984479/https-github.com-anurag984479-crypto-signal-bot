@@ -72,10 +72,10 @@ SYMBOLS = ["XAU/USD", "NAS100", "US500"]
 # CORE SETTINGS
 # ============================================================
 ATR_MULT               = 0.28
-VOL_MULT               = 1.10           # changed from 1.18
+VOL_MULT               = 1.10
 ADX_THRESHOLD          = 25
-SIGNAL_COOLDOWN        = 2700           # changed from 3600
-HTF_REFRESH            = 900            # changed from 1200
+SIGNAL_COOLDOWN        = 2700
+HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
 
@@ -84,7 +84,7 @@ MAX_CONSECUTIVE_LOSSES = 3
 # ============================================================
 RANGE_MIN_SCORE    = 7
 TREND_MIN_SCORE    = 6
-REVERSAL_MIN_SCORE = 8                  # changed from 9
+REVERSAL_MIN_SCORE = 8
 
 # ============================================================
 # REVERSAL SETTINGS
@@ -101,7 +101,7 @@ REVERSAL_RSI_OVERSOLD = {
     "US500":   26,
 }
 
-REVERSAL_ADX_MIN     = 30              # changed from 35
+REVERSAL_ADX_MIN     = 30
 REVERSAL_SCORE_BONUS = 2
 
 # ============================================================
@@ -259,7 +259,7 @@ def duplicate_signal(symbol_key, direction):
     now = time.time()
     if (
         _last_signal_direction.get(symbol_key) == direction
-        and now - _last_signal_time.get(symbol_key, 0) < 5400  # changed from 7200
+        and now - _last_signal_time.get(symbol_key, 0) < 5400
     ):
         log.info(f"Duplicate signal blocked for {symbol_key}")
         return True
@@ -414,6 +414,33 @@ def detect_liquidity_sweep(df):
 
     return bullish_sweep, bearish_sweep
 
+def detect_wick_rejection(df, atr):
+    """
+    Detect strong wick rejection candle.
+    Doji guard prevents false signals on near-zero body candles.
+    """
+    if len(df) < 2:
+        return False, False
+
+    candle = df.iloc[-1]
+
+    open_price  = float(candle["open"])
+    close_price = float(candle["close"])
+    high_price  = float(candle["high"])
+    low_price   = float(candle["low"])
+
+    body       = abs(close_price - open_price)
+    upper_wick = high_price - max(open_price, close_price)
+    lower_wick = min(open_price, close_price) - low_price
+
+    if body < atr * 0.05:
+        return False, False
+
+    bearish_reject = upper_wick > body * 1.8
+    bullish_reject = lower_wick > body * 1.8
+
+    return bullish_reject, bearish_reject
+
 # ============================================================
 # ELITE REVERSAL DETECTION
 # ============================================================
@@ -483,6 +510,7 @@ def build_score(df, trend, symbol_key):
     bull_choch, bear_choch = detect_choch(df)
     bull_rev,   bear_rev   = detect_reversal(df, symbol_key)
     bull_sweep, bear_sweep = detect_liquidity_sweep(df)
+    bull_wick,  bear_wick  = detect_wick_rejection(df, atr)
 
     bullish_break = float(last["close"]) > float(df.iloc[-2]["high"]) + atr * 0.12
     bearish_break = float(last["close"]) < float(df.iloc[-2]["low"])  - atr * 0.12
@@ -490,7 +518,7 @@ def build_score(df, trend, symbol_key):
     buy = {
         "HTF":      trend == "BULL",
         "EMA":      ema9 > ema21 > ema50 > ema200,
-        "RSI":      56 <= rsi <= 72,                   # loosened from 58-70
+        "RSI":      56 <= rsi <= 72,
         "ADX":      adx > ADX_THRESHOLD,
         "VOL":      volma > 0 and vol > volma * VOL_MULT,
         "FVG":      bull_fvg,
@@ -498,12 +526,13 @@ def build_score(df, trend, symbol_key):
         "BOS":      bullish_break,
         "REVERSAL": bull_rev,
         "SWEEP":    bull_sweep,
+        "WICK":     bull_wick,
     }
 
     sell = {
         "HTF":      trend == "BEAR",
         "EMA":      ema9 < ema21 < ema50 < ema200,
-        "RSI":      28 <= rsi <= 42,                   # loosened from 30-40
+        "RSI":      28 <= rsi <= 42,
         "ADX":      adx > ADX_THRESHOLD,
         "VOL":      volma > 0 and vol > volma * VOL_MULT,
         "FVG":      bear_fvg,
@@ -511,6 +540,7 @@ def build_score(df, trend, symbol_key):
         "BOS":      bearish_break,
         "REVERSAL": bear_rev,
         "SWEEP":    bear_sweep,
+        "WICK":     bear_wick,
     }
 
     buy_score  = sum(buy.values())
@@ -520,6 +550,17 @@ def build_score(df, trend, symbol_key):
         buy_score  += REVERSAL_SCORE_BONUS
     if bear_rev:
         sell_score += REVERSAL_SCORE_BONUS
+
+    if bull_sweep and bull_wick:
+        buy_score += 2
+    if bear_sweep and bear_wick:
+        sell_score += 2
+
+    if symbol_key == "XAU/USD":
+        if bull_sweep:
+            buy_score  += 1
+        if bear_sweep:
+            sell_score += 1
 
     return buy, sell, buy_score, sell_score
 
@@ -549,7 +590,7 @@ def calc_levels(price, atr, symbol_key, df, direction, reversal_mode):
         rr = 2.0
     else:
         if symbol_key == "XAU/USD":
-            rr = 2.8                   # changed from 3.0
+            rr = 2.8
         elif symbol_key == "NAS100":
             rr = 2.7
         else:
@@ -620,7 +661,7 @@ def process_symbol(symbol_key):
         return
 
     spread = get_spread(df)
-    if spread > MAX_SPREAD[symbol_key] * 0.95:      # loosened from 0.85
+    if spread > MAX_SPREAD[symbol_key] * 0.95:
         log.info(f"REJECTED {symbol_key} spread {spread:.4f}")
         return
 
