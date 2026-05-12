@@ -268,8 +268,7 @@ def duplicate_signal(symbol_key, direction):
     return False
 
 def economic_news_block():
-    h = datetime.now(timezone.utc).hour
-    return h in [12, 13, 14]
+    return False
 
 # ============================================================
 # SESSION FILTER — London + NY+London only (NY alone blocked)
