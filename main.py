@@ -72,8 +72,8 @@ SYMBOLS = ["XAU/USD", "NAS100", "US500"]
 # CORE SETTINGS
 # ============================================================
 ATR_MULT               = 0.28
-VOL_MULT               = 1.10
-ADX_THRESHOLD          = 25
+VOL_MULT               = 1.05           # PATCHED: lowered from 1.10
+ADX_THRESHOLD          = 22             # PATCHED: lowered from 25
 SIGNAL_COOLDOWN        = 2700
 HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
@@ -82,26 +82,26 @@ MAX_CONSECUTIVE_LOSSES = 3
 # ============================================================
 # SCORE THRESHOLDS BY REGIME
 # ============================================================
-RANGE_MIN_SCORE    = 7
+RANGE_MIN_SCORE    = 5                  # PATCHED: lowered from 7
 TREND_MIN_SCORE    = 6
-REVERSAL_MIN_SCORE = 8
+REVERSAL_MIN_SCORE = 6                  # PATCHED: lowered from 8
 
 # ============================================================
 # REVERSAL SETTINGS
 # ============================================================
 REVERSAL_RSI_OVERBOUGHT = {
-    "XAU/USD": 74,
+    "XAU/USD": 72,                      # PATCHED: lowered from 74
     "NAS100":  78,
     "US500":   77,
 }
 
 REVERSAL_RSI_OVERSOLD = {
-    "XAU/USD": 29,
+    "XAU/USD": 31,                      # PATCHED: raised from 29
     "NAS100":  25,
     "US500":   26,
 }
 
-REVERSAL_ADX_MIN     = 30
+REVERSAL_ADX_MIN     = 25              # PATCHED: lowered from 30
 REVERSAL_SCORE_BONUS = 2
 
 # ============================================================
