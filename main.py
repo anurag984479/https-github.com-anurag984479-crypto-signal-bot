@@ -72,10 +72,10 @@ SYMBOLS = ["XAU/USD", "NAS100", "US500"]
 # CORE SETTINGS
 # ============================================================
 ATR_MULT               = 0.28
-VOL_MULT               = 1.18
+VOL_MULT               = 1.10           # changed from 1.18
 ADX_THRESHOLD          = 25
-SIGNAL_COOLDOWN        = 3600          # changed from 2400
-HTF_REFRESH            = 1200
+SIGNAL_COOLDOWN        = 2700           # changed from 3600
+HTF_REFRESH            = 900            # changed from 1200
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
 
@@ -84,7 +84,7 @@ MAX_CONSECUTIVE_LOSSES = 3
 # ============================================================
 RANGE_MIN_SCORE    = 7
 TREND_MIN_SCORE    = 6
-REVERSAL_MIN_SCORE = 9                 # changed from 8
+REVERSAL_MIN_SCORE = 8                  # changed from 9
 
 # ============================================================
 # REVERSAL SETTINGS
@@ -101,7 +101,7 @@ REVERSAL_RSI_OVERSOLD = {
     "US500":   26,
 }
 
-REVERSAL_ADX_MIN     = 35              # changed from 28
+REVERSAL_ADX_MIN     = 30              # changed from 35
 REVERSAL_SCORE_BONUS = 2
 
 # ============================================================
@@ -259,7 +259,7 @@ def duplicate_signal(symbol_key, direction):
     now = time.time()
     if (
         _last_signal_direction.get(symbol_key) == direction
-        and now - _last_signal_time.get(symbol_key, 0) < 7200
+        and now - _last_signal_time.get(symbol_key, 0) < 5400  # changed from 7200
     ):
         log.info(f"Duplicate signal blocked for {symbol_key}")
         return True
@@ -272,7 +272,7 @@ def economic_news_block():
     return h in [12, 13, 14]
 
 # ============================================================
-# SESSION FILTER — London + NY+London only (NY alone removed)
+# SESSION FILTER — London + NY+London only (NY alone blocked)
 # ============================================================
 def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
@@ -290,7 +290,7 @@ def in_session(symbol_key):
     if 7 <= h < 12:
         return True, "London"
 
-    return False, "NY"              # NY alone now blocked
+    return False, "NY"
 
 # ============================================================
 # DATA FETCHING
@@ -416,7 +416,7 @@ def detect_liquidity_sweep(df):
     return bullish_sweep, bearish_sweep
 
 # ============================================================
-# ELITE REVERSAL DETECTION — now requires liquidity sweep
+# ELITE REVERSAL DETECTION
 # ============================================================
 def detect_reversal(df, symbol_key):
     """Elite institutional reversal detection."""
@@ -440,7 +440,7 @@ def detect_reversal(df, symbol_key):
         and adx >= REVERSAL_ADX_MIN
         and high_break
         and close < prev_close
-        and bear_sweep                  # now required
+        and bear_sweep
     )
 
     bullish_reversal = (
@@ -448,7 +448,7 @@ def detect_reversal(df, symbol_key):
         and adx >= REVERSAL_ADX_MIN
         and low_break
         and close > prev_close
-        and bull_sweep                  # now required
+        and bull_sweep
     )
 
     return bullish_reversal, bearish_reversal
@@ -466,7 +466,7 @@ def detect_market_regime(df):
         return "RANGE"
 
 # ============================================================
-# BUILD SCORE — EMA stack now includes EMA200, tighter RSI bands
+# BUILD SCORE
 # ============================================================
 def build_score(df, trend, symbol_key):
     last   = df.iloc[-1]
@@ -490,8 +490,8 @@ def build_score(df, trend, symbol_key):
 
     buy = {
         "HTF":      trend == "BULL",
-        "EMA":      ema9 > ema21 > ema50 > ema200,    # now includes EMA200
-        "RSI":      58 <= rsi <= 70,                   # tightened from 56-72
+        "EMA":      ema9 > ema21 > ema50 > ema200,
+        "RSI":      56 <= rsi <= 72,                   # loosened from 58-70
         "ADX":      adx > ADX_THRESHOLD,
         "VOL":      volma > 0 and vol > volma * VOL_MULT,
         "FVG":      bull_fvg,
@@ -503,8 +503,8 @@ def build_score(df, trend, symbol_key):
 
     sell = {
         "HTF":      trend == "BEAR",
-        "EMA":      ema9 < ema21 < ema50 < ema200,    # now includes EMA200
-        "RSI":      30 <= rsi <= 40,                   # tightened from <42
+        "EMA":      ema9 < ema21 < ema50 < ema200,
+        "RSI":      28 <= rsi <= 42,                   # loosened from 30-40
         "ADX":      adx > ADX_THRESHOLD,
         "VOL":      volma > 0 and vol > volma * VOL_MULT,
         "FVG":      bear_fvg,
@@ -525,7 +525,7 @@ def build_score(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score
 
 # ============================================================
-# LEVELS — XAU/USD RR raised to 3.0
+# LEVELS
 # ============================================================
 def calc_levels(price, atr, symbol_key, df, direction, reversal_mode):
     min_sl   = MARKETS[symbol_key]["min_sl"]
@@ -550,7 +550,7 @@ def calc_levels(price, atr, symbol_key, df, direction, reversal_mode):
         rr = 2.0
     else:
         if symbol_key == "XAU/USD":
-            rr = 3.0                   # raised from 2.7
+            rr = 2.8                   # changed from 3.0
         elif symbol_key == "NAS100":
             rr = 2.7
         else:
@@ -621,7 +621,7 @@ def process_symbol(symbol_key):
         return
 
     spread = get_spread(df)
-    if spread > MAX_SPREAD[symbol_key] * 0.85:      # tightened from 1.0x
+    if spread > MAX_SPREAD[symbol_key] * 0.95:      # loosened from 0.85
         log.info(f"REJECTED {symbol_key} spread {spread:.4f}")
         return
 
