@@ -1,11 +1,6 @@
 # ============================================================
-# PEPPERSTONE MOMENTUM HUNTER v21.0-GLOBAL-ELITE-PRO+
-# 11 MARKETS — FULL INSTITUTIONAL PRECISION ENGINE
-# ✔ BTC / ETH / SOL          ✔ Gold / Silver
-# ✔ NAS100 / US500 / DAX40   ✔ EUR/USD / GBP/USD
-# ✔ WTI Oil                  ✔ Partial Institutional Entry
-# ✔ Per-Symbol RSI Bands      ✔ Breakout Chase Filter
-# ✔ Pullback Confirmation     ✔ Smart SL Engine
+# PEPPERSTONE MOMENTUM HUNTER v20.0-HYBRID-INSTITUTIONAL-PRO
+# ENTRY PRECISION UPGRADE
 # ============================================================
 
 import time
@@ -20,20 +15,20 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
-SYSTEM_VERSION = "v21.0-GLOBAL-ELITE-PRO+"
+SYSTEM_VERSION = "v20.0-HYBRID-INSTITUTIONAL-PRO"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v21.0")
+log = logging.getLogger("v20.0")
 
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
 # ============================================================
-# MARKETS — 11 markets
+# MARKETS
 # ============================================================
 MARKETS = {
     "BTC/USD": {
@@ -45,28 +40,6 @@ MARKETS = {
         "decimals": 2,
         "min_sl":   250.0,
         "tier":     "BTC ELITE",
-        "bias":     "BULL",
-    },
-    "ETH/USD": {
-        "mt5":      "ETHUSD.Qraw",
-        "yf":       None,
-        "price_lo": 1500,
-        "price_hi": 10000,
-        "sessions": [0, 23],
-        "decimals": 2,
-        "min_sl":   18.0,
-        "tier":     "ETH ELITE",
-        "bias":     "BULL",
-    },
-    "SOL/USD": {
-        "mt5":      "SOLUSD.Qraw",
-        "yf":       None,
-        "price_lo": 20,
-        "price_hi": 500,
-        "sessions": [0, 23],
-        "decimals": 2,
-        "min_sl":   2.50,
-        "tier":     "SOL ELITE",
         "bias":     "BULL",
     },
     "XAU/USD": {
@@ -92,10 +65,10 @@ MARKETS = {
         "bias":     "BULL",
     },
     "NAS100": {
-        "mt5":      "USTEC.Qraw",
+        "mt5":      "NAS100",
         "yf":       "^NDX",
         "price_lo": 15000,
-        "price_hi": 30000,
+        "price_hi": 28000,
         "sessions": [13, 21],
         "decimals": 1,
         "min_sl":   55.0,
@@ -113,65 +86,9 @@ MARKETS = {
         "tier":     "US500 ELITE",
         "bias":     "BULL",
     },
-    "DAX40": {
-        "mt5":      "DE30.Qraw",
-        "yf":       "^GDAXI",
-        "price_lo": 15000,
-        "price_hi": 25000,
-        "sessions": [7, 18],
-        "decimals": 1,
-        "min_sl":   45.0,
-        "tier":     "DAX ELITE",
-        "bias":     "BULL",
-    },
-    "EUR/USD": {
-        "mt5":      "EURUSD.Qraw",
-        "yf":       "EURUSD=X",
-        "price_lo": 1.00,
-        "price_hi": 1.25,
-        "sessions": [6, 20],
-        "decimals": 5,
-        "min_sl":   0.0012,
-        "tier":     "FOREX ELITE",
-        "bias":     "NEUTRAL",
-    },
-    "GBP/USD": {
-        "mt5":      "GBPUSD.Qraw",
-        "yf":       "GBPUSD=X",
-        "price_lo": 1.10,
-        "price_hi": 1.40,
-        "sessions": [6, 20],
-        "decimals": 5,
-        "min_sl":   0.0015,
-        "tier":     "FOREX ELITE",
-        "bias":     "NEUTRAL",
-    },
-    "WTI/USD": {
-        "mt5":      "WTIUSD.Qraw",
-        "yf":       "CL=F",
-        "price_lo": 40,
-        "price_hi": 130,
-        "sessions": [13, 22],
-        "decimals": 2,
-        "min_sl":   1.20,
-        "tier":     "OIL ELITE",
-        "bias":     "NEUTRAL",
-    },
 }
 
-SYMBOLS = [
-    "BTC/USD",
-    "ETH/USD",
-    "SOL/USD",
-    "XAU/USD",
-    "XAG/USD",
-    "NAS100",
-    "US500",
-    "DAX40",
-    "EUR/USD",
-    "GBP/USD",
-    "WTI/USD",
-]
+SYMBOLS = list(MARKETS.keys())
 
 # ============================================================
 # SETTINGS
@@ -187,74 +104,42 @@ MIN_SCORE              = 7
 
 ATR_MARKET_MULTIPLIER = {
     "BTC/USD": 1.35,
-    "ETH/USD": 1.20,
-    "SOL/USD": 1.30,
     "XAU/USD": 1.05,
     "XAG/USD": 1.00,
     "NAS100":  1.03,
     "US500":   1.02,
-    "DAX40":   1.08,
-    "EUR/USD": 0.90,
-    "GBP/USD": 0.90,
-    "WTI/USD": 1.15,
 }
 
 DOLLAR_PER_POINT = {
-    "BTC/USD": 1,
-    "ETH/USD": 1,
-    "SOL/USD": 10,
     "XAU/USD": 100,
     "XAG/USD": 5000,
+    "BTC/USD": 1,
     "NAS100":  10,
     "US500":   10,
-    "DAX40":   10,
-    "EUR/USD": 100000,
-    "GBP/USD": 100000,
-    "WTI/USD": 100,
 }
 
 MAX_SPREAD = {
-    "BTC/USD": 60,
-    "ETH/USD": 8,
-    "SOL/USD": 0.60,
     "XAU/USD": 0.80,
     "XAG/USD": 0.08,
+    "BTC/USD": 60,
     "NAS100":  4.0,
     "US500":   2.0,
-    "DAX40":   4.5,
-    "EUR/USD": 0.00025,
-    "GBP/USD": 0.00030,
-    "WTI/USD": 0.20,
 }
 
+# ============================================================
+# RSI BANDS — per symbol
+# ============================================================
 RSI_LIMITS = {
-    "BTC/USD": (52, 68),
-    "ETH/USD": (52, 68),
-    "SOL/USD": (54, 72),
     "XAU/USD": (58, 72),
     "XAG/USD": (58, 70),
     "NAS100":  (55, 70),
     "US500":   (55, 70),
-    "DAX40":   (55, 70),
-    "EUR/USD": (52, 68),
-    "GBP/USD": (52, 68),
-    "WTI/USD": (54, 70),
+    "BTC/USD": (52, 68),
 }
 
-LOT_CAPS = {
-    "BTC/USD": 0.40,
-    "ETH/USD": 0.80,
-    "SOL/USD": 1.20,
-    "XAU/USD": 1.20,
-    "XAG/USD": 0.12,
-    "NAS100":  1.50,
-    "US500":   2.50,
-    "DAX40":   1.20,
-    "EUR/USD": 2.50,
-    "GBP/USD": 2.50,
-    "WTI/USD": 1.00,
-}
-
+# ============================================================
+# REGIME TO TIMEFRAME MAP
+# ============================================================
 REGIME_TIMEFRAME = {
     "SCALP":    "1M / 5M",
     "RANGE":    "15M / 30M",
@@ -331,8 +216,7 @@ def send_telegram(msg):
 # ============================================================
 def weekend_block(symbol_key):
     weekday = datetime.now(timezone.utc).weekday()
-    crypto  = ["BTC/USD", "ETH/USD", "SOL/USD"]
-    if weekday >= 5 and symbol_key not in crypto:
+    if weekday >= 5 and symbol_key != "BTC/USD":
         return True
     return False
 
@@ -419,33 +303,17 @@ def fetch_ccxt(src_name, sym, tf="5m", limit=300):
 
 
 def get_entry_data(symbol_key):
-    # ── Crypto via CCXT
     if symbol_key == "BTC/USD":
         for src in ["coinbase", "binance"]:
             pair = "BTC/USDT" if src == "binance" else "BTC/USD"
             df   = fetch_ccxt(src, pair)
             if df is not None and len(df) > 100:
                 return df, src
-
-    if symbol_key == "ETH/USD":
-        for src in ["coinbase", "binance"]:
-            pair = "ETH/USDT" if src == "binance" else "ETH/USD"
-            df   = fetch_ccxt(src, pair)
-            if df is not None and len(df) > 100:
-                return df, src
-
-    if symbol_key == "SOL/USD":
-        df = fetch_ccxt("binance", "SOL/USDT")
-        if df is not None and len(df) > 100:
-            return df, "binance"
-
-    # ── Everything else via yfinance
     yf_sym = MARKETS[symbol_key]["yf"]
     if yf_sym:
         df = fetch_yf(yf_sym)
         if df is not None and len(df) > 100:
             return df, "yf"
-
     return None, None
 
 
@@ -553,10 +421,12 @@ def breakout_chase_filter(df, symbol_key):
     recent_high = float(df.tail(10)["high"].max())
     recent_low  = float(df.tail(10)["low"].min())
     close       = float(last["close"])
+
     if close > recent_high - atr * 0.15:
         return False
     if close < recent_low + atr * 0.15:
         return False
+
     return True
 
 
@@ -569,6 +439,7 @@ def pullback_confirmation(df, direction):
     ema9  = float(last["ema9"])
     ema21 = float(last["ema21"])
     atr   = float(last["atr"])
+
     if direction == "BUY":
         return (
             close > ema9
@@ -603,6 +474,7 @@ def build_score(df, trend, symbol_key):
     bullish_break = float(last["close"]) > float(df.iloc[-2]["high"]) + atr * 0.12
     bearish_break = float(last["close"]) < float(df.iloc[-2]["low"])  - atr * 0.12
 
+    # per-symbol RSI bands
     rsi_min, rsi_max = RSI_LIMITS[symbol_key]
 
     buy = {
@@ -660,12 +532,8 @@ def calc_levels(price, direction, atr, symbol_key, df):
 
     if symbol_key == "BTC/USD":
         rr = 2.8
-    elif symbol_key in ["XAU/USD", "NAS100", "ETH/USD"]:
+    elif symbol_key in ["XAU/USD", "NAS100"]:
         rr = 2.7
-    elif symbol_key == "SOL/USD":
-        rr = 3.0
-    elif symbol_key in ["EUR/USD", "GBP/USD"]:
-        rr = 2.5
     else:
         rr = 2.5
 
@@ -685,7 +553,7 @@ def calc_levels(price, direction, atr, symbol_key, df):
 
 
 # ============================================================
-# LOT SIZE — partial institutional entry with per-symbol caps
+# LOT SIZE — partial institutional entry
 # ============================================================
 def lot_for_risk(price, sl, symbol_key, risk=25):
     sl_dist = abs(price - sl)
@@ -697,7 +565,15 @@ def lot_for_risk(price, sl, symbol_key, risk=25):
     # 65% partial institutional entry
     lot = full_lot * 0.65
 
-    return round(max(0.01, min(lot, LOT_CAPS[symbol_key])), 3)
+    caps = {
+        "XAU/USD": 1.20,
+        "XAG/USD": 0.12,
+        "BTC/USD": 0.40,
+        "NAS100":  1.50,
+        "US500":   2.50,
+    }
+
+    return round(max(0.01, min(lot, caps[symbol_key])), 3)
 
 
 # ============================================================
@@ -741,9 +617,7 @@ def process_symbol(symbol_key):
     if not ok:
         return
 
-    if economic_news_block() and symbol_key in [
-        "XAU/USD", "NAS100", "US500", "DAX40", "EUR/USD", "GBP/USD", "WTI/USD"
-    ]:
+    if economic_news_block() and symbol_key in ["XAU/USD", "NAS100", "US500"]:
         log.info(f"BLOCKED {symbol_key} news window")
         return
 
@@ -753,7 +627,7 @@ def process_symbol(symbol_key):
 
     spread = get_spread(df)
     if spread > MAX_SPREAD[symbol_key]:
-        log.info(f"REJECTED {symbol_key} spread {spread:.5f}")
+        log.info(f"REJECTED {symbol_key} spread {spread:.4f}")
         return
 
     df    = add_ind(df)
@@ -765,9 +639,8 @@ def process_symbol(symbol_key):
 
     trend = get_trend(symbol_key)
 
-    crypto = ["BTC/USD", "ETH/USD", "SOL/USD"]
-    if symbol_key in crypto and trend == "NEUTRAL":
-        log.info(f"REJECTED {symbol_key} HTF NEUTRAL")
+    if symbol_key == "BTC/USD" and trend == "NEUTRAL":
+        log.info("REJECTED BTC/USD HTF NEUTRAL")
         return
 
     buy, sell, buy_score, sell_score = build_score(df, trend, symbol_key)
@@ -815,10 +688,12 @@ def process_symbol(symbol_key):
             log.info(f"REJECTED {symbol_key} SELL — bull bias")
             return
 
+    # breakout chase protection
     if not breakout_chase_filter(df, symbol_key):
         log.info(f"REJECTED {symbol_key} breakout chase risk")
         return
 
+    # pullback confirmation
     if not pullback_confirmation(df, direction):
         log.info(f"REJECTED {symbol_key} weak pullback structure")
         return
@@ -891,20 +766,14 @@ def main():
     log.info(f"{SYSTEM_VERSION} STARTED")
     send_telegram(
         f"🚀 *{SYSTEM_VERSION} LIVE*\n\n"
-        f"📊 *11 Markets Active:*\n"
+        f"📊 *Markets Active:*\n"
         f"₿  BTC/USD\n"
-        f"🔷 ETH/USD\n"
-        f"🌟 SOL/USD\n"
         f"🥇 XAU/USD\n"
         f"🥈 XAG/USD\n"
         f"📈 NAS100\n"
-        f"🇺🇸 US500\n"
-        f"🇩🇪 DAX40\n"
-        f"💶 EUR/USD\n"
-        f"💷 GBP/USD\n"
-        f"🛢 WTI/USD\n\n"
-        f"🛡 Partial Institutional Entry Active\n"
-        f"⚡ Global Elite Pro+ Mode"
+        f"🇺🇸 US500\n\n"
+        f"🛡 Entry Precision Upgrades Active\n"
+        f"⚡ Hybrid Institutional Pro Mode"
     )
 
     while True:
