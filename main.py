@@ -1,6 +1,6 @@
 # ============================================================
-# PEPPERSTONE MOMENTUM HUNTER v20.0-HYBRID-INSTITUTIONAL-PRO
-# ENTRY PRECISION UPGRADE
+# PEPPERSTONE MOMENTUM HUNTER v20.0
+# ULTIMATE 360° INSTITUTIONAL PRECISION ENGINE
 # ============================================================
 
 import time
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
-SYSTEM_VERSION = "v20.0-HYBRID-INSTITUTIONAL-PRO"
+SYSTEM_VERSION = "v20.0-ULTIMATE-360-INSTITUTIONAL"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,7 +28,7 @@ TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
 # ============================================================
-# MARKETS
+# MARKETS — 5 markets
 # ============================================================
 MARKETS = {
     "BTC/USD": {
@@ -93,30 +93,14 @@ SYMBOLS = list(MARKETS.keys())
 # ============================================================
 # SETTINGS
 # ============================================================
-ATR_MULT               = 0.30
-VOL_MULT               = 1.15
-ADX_THRESHOLD          = 24
-SIGNAL_COOLDOWN        = 1800
+ATR_MULT               = 0.45
+VOL_MULT               = 1.10
+ADX_THRESHOLD          = 22
+SIGNAL_COOLDOWN        = 1200
 HTF_REFRESH            = 1200
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 4
-MIN_SCORE              = 7
-
-ATR_MARKET_MULTIPLIER = {
-    "BTC/USD": 1.35,
-    "XAU/USD": 1.05,
-    "XAG/USD": 1.00,
-    "NAS100":  1.03,
-    "US500":   1.02,
-}
-
-DOLLAR_PER_POINT = {
-    "XAU/USD": 100,
-    "XAG/USD": 5000,
-    "BTC/USD": 1,
-    "NAS100":  10,
-    "US500":   10,
-}
+MIN_SCORE              = 6
 
 MAX_SPREAD = {
     "XAU/USD": 0.80,
@@ -124,17 +108,6 @@ MAX_SPREAD = {
     "BTC/USD": 60,
     "NAS100":  4.0,
     "US500":   2.0,
-}
-
-# ============================================================
-# RSI BANDS — per symbol
-# ============================================================
-RSI_LIMITS = {
-    "XAU/USD": (58, 72),
-    "XAG/USD": (58, 70),
-    "NAS100":  (55, 70),
-    "US500":   (55, 70),
-    "BTC/USD": (52, 68),
 }
 
 # ============================================================
@@ -211,9 +184,6 @@ def send_telegram(msg):
     return False
 
 
-# ============================================================
-# SAFETY GUARDS
-# ============================================================
 def weekend_block(symbol_key):
     weekday = datetime.now(timezone.utc).weekday()
     if weekday >= 5 and symbol_key != "BTC/USD":
@@ -272,9 +242,6 @@ def in_session(symbol_key):
     return True, "Asian"
 
 
-# ============================================================
-# DATA FETCH
-# ============================================================
 def fetch_yf(ticker, period="15d", interval="5m"):
     try:
         raw = yf.download(
@@ -327,9 +294,6 @@ def get_spread(df):
     return avg_range * 0.18
 
 
-# ============================================================
-# INDICATORS
-# ============================================================
 def add_ind(df):
     df  = df.copy()
     cl  = pd.to_numeric(df["close"])
@@ -348,9 +312,6 @@ def add_ind(df):
     return df
 
 
-# ============================================================
-# TREND
-# ============================================================
 def get_trend(symbol_key):
     cache = _htf_cache[symbol_key]
     now   = time.time()
@@ -372,9 +333,6 @@ def get_trend(symbol_key):
     return trend
 
 
-# ============================================================
-# ICT MODULES
-# ============================================================
 def fair_value_gap(df):
     if len(df) < 3:
         return False, False
@@ -398,9 +356,21 @@ def detect_choch(df):
     )
 
 
-# ============================================================
-# REGIME
-# ============================================================
+def rejection_wick(df):
+    last  = df.iloc[-1]
+    high  = float(last["high"])
+    low   = float(last["low"])
+    open_ = float(last["open"])
+    close = float(last["close"])
+    body       = abs(close - open_)
+    upper_wick = high - max(close, open_)
+    lower_wick = min(close, open_) - low
+    return (
+        lower_wick > body * 1.8,
+        upper_wick > body * 1.8
+    )
+
+
 def detect_market_regime(df):
     adx = float(df.iloc[-1]["adx"])
     if adx >= 35:
@@ -412,51 +382,6 @@ def detect_market_regime(df):
     return "SCALP"
 
 
-# ============================================================
-# BREAKOUT CHASE FILTER
-# ============================================================
-def breakout_chase_filter(df, symbol_key):
-    last        = df.iloc[-1]
-    atr         = float(last["atr"])
-    recent_high = float(df.tail(10)["high"].max())
-    recent_low  = float(df.tail(10)["low"].min())
-    close       = float(last["close"])
-
-    if close > recent_high - atr * 0.15:
-        return False
-    if close < recent_low + atr * 0.15:
-        return False
-
-    return True
-
-
-# ============================================================
-# PULLBACK CONFIRMATION
-# ============================================================
-def pullback_confirmation(df, direction):
-    last  = df.iloc[-1]
-    close = float(last["close"])
-    ema9  = float(last["ema9"])
-    ema21 = float(last["ema21"])
-    atr   = float(last["atr"])
-
-    if direction == "BUY":
-        return (
-            close > ema9
-            and abs(close - ema9) < atr * 0.35
-            and close > ema21
-        )
-    else:
-        return (
-            close < ema9
-            and abs(close - ema9) < atr * 0.35
-            and close < ema21
-        )
-
-
-# ============================================================
-# SCORING ENGINE
-# ============================================================
 def build_score(df, trend, symbol_key):
     last  = df.iloc[-1]
     rsi   = float(last["rsi"])
@@ -466,119 +391,81 @@ def build_score(df, trend, symbol_key):
     adx   = float(last["adx"])
     vol   = float(last["volume"])
     volma = float(last["volma"]) if not pd.isna(last["volma"]) else 0
-    atr   = float(last["atr"])
 
     bull_fvg,   bear_fvg   = fair_value_gap(df)
     bull_choch, bear_choch = detect_choch(df)
+    bull_wick,  bear_wick  = rejection_wick(df)
 
-    bullish_break = float(last["close"]) > float(df.iloc[-2]["high"]) + atr * 0.12
-    bearish_break = float(last["close"]) < float(df.iloc[-2]["low"])  - atr * 0.12
-
-    # per-symbol RSI bands
-    rsi_min, rsi_max = RSI_LIMITS[symbol_key]
+    bias = MARKETS[symbol_key].get("bias", "NEUTRAL")
 
     buy = {
         "HTF":   trend == "BULL",
         "EMA":   ema9 > ema21 > ema50,
-        "RSI":   rsi_min <= rsi <= rsi_max,
+        "RSI":   rsi > 58,
         "ADX":   adx > ADX_THRESHOLD,
         "VOL":   volma > 0 and vol > volma * VOL_MULT,
         "FVG":   bull_fvg,
         "CHOCH": bull_choch,
-        "BOS":   bullish_break,
+        "WICK":  bull_wick,
     }
 
     sell = {
         "HTF":   trend == "BEAR",
         "EMA":   ema9 < ema21 < ema50,
-        "RSI":   (100 - rsi_max) <= rsi <= (100 - rsi_min),
+        "RSI":   rsi < 42,
         "ADX":   adx > ADX_THRESHOLD,
         "VOL":   volma > 0 and vol > volma * VOL_MULT,
         "FVG":   bear_fvg,
         "CHOCH": bear_choch,
-        "BOS":   bearish_break,
+        "WICK":  bear_wick,
     }
 
     buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
 
-    if MARKETS[symbol_key].get("bias") == "BULL":
-        buy_score += 1
+    if bias == "BULL":
+        buy_score  = int(round(buy_score  * 1.10))
+        sell_score = int(round(sell_score * 0.90))
 
     return buy, sell, buy_score, sell_score
 
 
-# ============================================================
-# LEVELS
-# ============================================================
-def calc_levels(price, direction, atr, symbol_key, df):
+def calc_levels(price, direction, atr, symbol_key):
     min_sl   = MARKETS[symbol_key]["min_sl"]
     decimals = MARKETS[symbol_key]["decimals"]
-    recent   = df.tail(8)
 
-    if direction == "BUY":
-        swing_sl = price - float(recent["low"].min())
-    else:
-        swing_sl = float(recent["high"].max()) - price
-
-    atr_sl  = atr * ATR_MULT * ATR_MARKET_MULTIPLIER[symbol_key]
-    sl_dist = max(
-        min_sl,
-        min(
-            max(atr_sl, swing_sl * 0.85),
-            swing_sl * 1.15
-        )
-    )
+    sl_dist = max(min_sl, atr * ATR_MULT)
 
     if symbol_key == "BTC/USD":
-        rr = 2.8
-    elif symbol_key in ["XAU/USD", "NAS100"]:
-        rr = 2.7
-    else:
-        rr = 2.5
+        sl_dist *= 1.55
+    elif symbol_key == "XAU/USD":
+        sl_dist *= 1.15
+    elif symbol_key == "XAG/USD":
+        sl_dist *= 1.10
+    elif symbol_key in ["NAS100", "US500"]:
+        sl_dist *= 1.08
 
     if direction == "BUY":
         sl = price - sl_dist
-        tp = price + sl_dist * rr
+        tp = price + sl_dist * 3
     else:
         sl = price + sl_dist
-        tp = price - sl_dist * rr
+        tp = price - sl_dist * 3
 
     return (
         round(sl, decimals),
         round(tp, decimals),
-        round(sl_dist, decimals),
-        rr
+        round(sl_dist, decimals)
     )
 
 
-# ============================================================
-# LOT SIZE — partial institutional entry
-# ============================================================
-def lot_for_risk(price, sl, symbol_key, risk=25):
+def lot_for_risk(price, sl, risk):
     sl_dist = abs(price - sl)
-    if sl_dist <= 0:
+    if sl_dist == 0:
         return 0.01
-
-    full_lot = risk / (sl_dist * DOLLAR_PER_POINT[symbol_key])
-
-    # 65% partial institutional entry
-    lot = full_lot * 0.65
-
-    caps = {
-        "XAU/USD": 1.20,
-        "XAG/USD": 0.12,
-        "BTC/USD": 0.40,
-        "NAS100":  1.50,
-        "US500":   2.50,
-    }
-
-    return round(max(0.01, min(lot, caps[symbol_key])), 3)
+    return max(round(risk / sl_dist, 3), 0.01)
 
 
-# ============================================================
-# SIGNAL JOURNAL
-# ============================================================
 def log_signal(symbol, direction, score, rr, entry, sl, tp, session, regime, timeframe):
     file_exists = os.path.isfile("signals_log.csv")
     with open("signals_log.csv", "a", newline="") as f:
@@ -597,9 +484,6 @@ def log_signal(symbol, direction, score, rr, entry, sl, tp, session, regime, tim
         ])
 
 
-# ============================================================
-# PROCESS SYMBOL
-# ============================================================
 def process_symbol(symbol_key):
     log.info(f"Scanning {symbol_key}")
 
@@ -648,27 +532,12 @@ def process_symbol(symbol_key):
     best   = max(buy_score, sell_score)
     regime = detect_market_regime(df)
 
+    # ── timeframe from regime
     timeframe = REGIME_TIMEFRAME.get(regime, "5M / 15M")
-
-    atr = float(df.iloc[-1]["atr"])
-    rsi = float(df.iloc[-1]["rsi"])
-    adx = float(df.iloc[-1]["adx"])
-
-    # RSI protection filters
-    if symbol_key == "XAU/USD" and rsi > 74:
-        log.info(f"REJECTED {symbol_key} RSI too high {rsi:.1f}")
-        return
-    if symbol_key == "XAG/USD" and rsi > 76:
-        log.info(f"REJECTED {symbol_key} RSI too high {rsi:.1f}")
-        return
-    if regime == "RANGE" and best < 7:
-        log.info(f"REJECTED {symbol_key} RANGE needs score 7+, got {best}")
-        return
 
     log.info(
         f"{symbol_key} | BUY: {buy_score} | SELL: {sell_score} | "
         f"Regime: {regime} | TF: {timeframe} | "
-        f"RSI: {rsi:.1f} | ADX: {adx:.1f} | "
         f"Trend: {trend} | Session: {session}"
     )
 
@@ -688,16 +557,6 @@ def process_symbol(symbol_key):
             log.info(f"REJECTED {symbol_key} SELL — bull bias")
             return
 
-    # breakout chase protection
-    if not breakout_chase_filter(df, symbol_key):
-        log.info(f"REJECTED {symbol_key} breakout chase risk")
-        return
-
-    # pullback confirmation
-    if not pullback_confirmation(df, direction):
-        log.info(f"REJECTED {symbol_key} weak pullback structure")
-        return
-
     if duplicate_signal(symbol_key, direction):
         return
 
@@ -709,17 +568,20 @@ def process_symbol(symbol_key):
 
     _signal_sent[symbol_key] = now
 
+    atr = float(df.iloc[-1]["atr"])
+    rsi = float(df.iloc[-1]["rsi"])
+    adx = float(df.iloc[-1]["adx"])
     dec = MARKETS[symbol_key]["decimals"]
 
-    sl, tp, sl_dist, rr = calc_levels(price, direction, atr, symbol_key, df)
+    sl, tp, sl_dist = calc_levels(price, direction, atr, symbol_key)
 
-    actual_rr = round(abs(tp - price) / abs(price - sl), 2) if abs(price - sl) > 0 else 0
+    rr = round(abs(tp - price) / abs(price - sl), 2) if abs(price - sl) > 0 else 0
 
-    if actual_rr < 2.0:
-        log.info(f"REJECTED {symbol_key} RR {actual_rr} < 2.0")
+    if rr < 2.0:
+        log.info(f"REJECTED {symbol_key} RR {rr} < 2.0")
         return
 
-    lot = lot_for_risk(price, sl, symbol_key, 25)
+    lot = lot_for_risk(price, sl, 25)
 
     log_signal(symbol_key, direction, best, rr, price, sl, tp, session, regime, timeframe)
     sync_real_pnl()
@@ -734,11 +596,10 @@ def process_symbol(symbol_key):
         f"⭐ *Score:* {best}/8\n"
         f"🧠 *Regime:* {regime}\n"
         f"⏱ *Timeframe:* {timeframe}\n"
-        f"📊 *Market Bias:* {bias}\n"
-        f"🛡 *Entry Mode:* Partial Institutional Precision\n\n"
+        f"📊 *Market Bias:* {bias}\n\n"
         f"📍 *Entry:* {price:,.{dec}f}\n"
         f"🛑 *SL:* {sl:,.{dec}f}\n"
-        f"🎯 *TP:* {tp:,.{dec}f} *(1:{actual_rr} RR)*\n\n"
+        f"🎯 *TP:* {tp:,.{dec}f} *(1:{rr} RR)*\n\n"
         f"📈 *RSI:* {rsi:.1f}\n"
         f"📉 *ADX:* {adx:.1f}\n"
         f"🌍 *Trend:* {trend}\n"
@@ -747,7 +608,7 @@ def process_symbol(symbol_key):
         f"💵 *Lot:* {lot}\n\n"
         f"✅ *Conditions:*\n"
         f"{cond_text}\n\n"
-        f"⚡ *HYBRID INSTITUTIONAL PRO MODE*"
+        f"⚡ *STRICT ELITE INSTITUTIONAL TVM MODE*"
     )
 
     send_telegram(msg)
@@ -755,13 +616,10 @@ def process_symbol(symbol_key):
     log.info(
         f"SIGNAL SENT {symbol_key} {direction} | "
         f"Entry: {price} | SL: {sl} | TP: {tp} | "
-        f"RR: {actual_rr} | Regime: {regime} | TF: {timeframe}"
+        f"RR: {rr} | Regime: {regime} | TF: {timeframe}"
     )
 
 
-# ============================================================
-# MAIN
-# ============================================================
 def main():
     log.info(f"{SYSTEM_VERSION} STARTED")
     send_telegram(
@@ -772,8 +630,7 @@ def main():
         f"🥈 XAG/USD\n"
         f"📈 NAS100\n"
         f"🇺🇸 US500\n\n"
-        f"🛡 Entry Precision Upgrades Active\n"
-        f"⚡ Hybrid Institutional Pro Mode"
+        f"⚡ All systems active"
     )
 
     while True:
