@@ -1,5 +1,5 @@
 # ============================================================
-# PEPPERSTONE MOMENTUM HUNTER v21.0-GLOBAL-ELITE-PRO+-CURATED
+# PEPPERSTONE MOMENTUM HUNTER v21.5-GLOBAL-ELITE-INSTITUTIONAL
 # GOLD + NAS100 + US500 ONLY
 # CONTINUATION + REVERSAL | INSTITUTIONAL PRECISION ENGINE
 # ============================================================
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
-SYSTEM_VERSION = "v21.0-GLOBAL-ELITE-PRO+-CURATED"
+SYSTEM_VERSION = "v21.5-GLOBAL-ELITE-INSTITUTIONAL"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,7 +74,7 @@ SYMBOLS = ["XAU/USD", "NAS100", "US500"]
 ATR_MULT               = 0.28
 VOL_MULT               = 1.18
 ADX_THRESHOLD          = 25
-SIGNAL_COOLDOWN        = 2400
+SIGNAL_COOLDOWN        = 3600          # changed from 2400
 HTF_REFRESH            = 1200
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
@@ -84,7 +84,7 @@ MAX_CONSECUTIVE_LOSSES = 3
 # ============================================================
 RANGE_MIN_SCORE    = 7
 TREND_MIN_SCORE    = 6
-REVERSAL_MIN_SCORE = 8
+REVERSAL_MIN_SCORE = 9                 # changed from 8
 
 # ============================================================
 # REVERSAL SETTINGS
@@ -101,7 +101,7 @@ REVERSAL_RSI_OVERSOLD = {
     "US500":   26,
 }
 
-REVERSAL_ADX_MIN     = 28
+REVERSAL_ADX_MIN     = 35              # changed from 28
 REVERSAL_SCORE_BONUS = 2
 
 # ============================================================
@@ -158,7 +158,6 @@ _htf_cache             = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
 _last_signal_direction = {}
 _last_signal_time      = {}
 
-
 # ============================================================
 # DAILY RESET & TRADE TRACKING
 # ============================================================
@@ -171,7 +170,6 @@ def reset_daily():
         last_reset_day     = current_day
         log.info("Daily reset complete")
 
-
 def update_trade_result(pnl):
     global daily_pnl, consecutive_losses
     daily_pnl += pnl
@@ -180,10 +178,8 @@ def update_trade_result(pnl):
     else:
         consecutive_losses = 0
 
-
 def sync_real_pnl():
     return daily_pnl
-
 
 # ============================================================
 # WATCHDOG & LOG ROTATION
@@ -195,13 +191,11 @@ def watchdog():
     except Exception as e:
         log.error(f"Watchdog failure: {e}")
 
-
 def rotate_log():
     file_path = "signals_log.csv"
     if os.path.isfile(file_path):
         if os.path.getsize(file_path) > 5_000_000:
             os.rename(file_path, f"signals_log_{int(time.time())}.csv")
-
 
 def log_signal(symbol, direction, score, rr, entry, sl, tp,
                session, regime, timeframe, signal_type):
@@ -220,7 +214,6 @@ def log_signal(symbol, direction, score, rr, entry, sl, tp,
             symbol, direction, score, rr,
             entry, sl, tp, session, regime, timeframe, signal_type
         ])
-
 
 # ============================================================
 # TELEGRAM
@@ -244,13 +237,11 @@ def send_telegram(msg):
             time.sleep(2)
     return False
 
-
 # ============================================================
 # CIRCUIT BREAKERS
 # ============================================================
 def weekend_block(symbol_key):
     return datetime.now(timezone.utc).weekday() >= 5
-
 
 def daily_loss_lock():
     if daily_pnl <= MAX_DAILY_LOSS:
@@ -258,13 +249,11 @@ def daily_loss_lock():
         return True
     return False
 
-
 def loss_streak_lock():
     if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
         log.info("Kill switch: 3 consecutive losses")
         return True
     return False
-
 
 def duplicate_signal(symbol_key, direction):
     now = time.time()
@@ -278,14 +267,12 @@ def duplicate_signal(symbol_key, direction):
     _last_signal_time[symbol_key]      = now
     return False
 
-
 def economic_news_block():
     h = datetime.now(timezone.utc).hour
     return h in [12, 13, 14]
 
-
 # ============================================================
-# SESSION FILTER — London + NY+London only
+# SESSION FILTER — London + NY+London only (NY alone removed)
 # ============================================================
 def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
@@ -303,8 +290,7 @@ def in_session(symbol_key):
     if 7 <= h < 12:
         return True, "London"
 
-    return True, "NY"
-
+    return False, "NY"              # NY alone now blocked
 
 # ============================================================
 # DATA FETCHING
@@ -324,7 +310,6 @@ def fetch_yf(ticker, period="15d", interval="5m"):
     except:
         return None
 
-
 def get_entry_data(symbol_key):
     yf_sym = MARKETS[symbol_key]["yf"]
     if yf_sym:
@@ -332,7 +317,6 @@ def get_entry_data(symbol_key):
         if df is not None and len(df) > 100:
             return df, "yf"
     return None, None
-
 
 def get_spread(df):
     if df is None or len(df) < 3:
@@ -342,7 +326,6 @@ def get_spread(df):
         recent["high"].astype(float) - recent["low"].astype(float)
     ).mean()
     return avg_range * 0.18
-
 
 # ============================================================
 # INDICATORS
@@ -363,7 +346,6 @@ def add_ind(df):
     df["volma"]  = vol.rolling(20).mean()
     df["vwap"]   = (cl * vol).cumsum() / vol.cumsum()
     return df
-
 
 # ============================================================
 # HTF TREND
@@ -388,7 +370,6 @@ def get_trend(symbol_key):
     cache["ts"]    = now
     return trend
 
-
 # ============================================================
 # PATTERN DETECTION
 # ============================================================
@@ -402,7 +383,6 @@ def fair_value_gap(df):
         float(c1["low"])  > float(c3["high"])
     )
 
-
 def detect_choch(df):
     if len(df) < 6:
         return False, False
@@ -413,39 +393,6 @@ def detect_choch(df):
         lows[-2]  < lows[-3]  and close > highs[-2],
         highs[-2] > highs[-3] and close < lows[-2]
     )
-
-
-def detect_reversal(df, symbol_key):
-    """Detects exhaustion reversals using RSI extremes + ADX + price action."""
-    if len(df) < 5:
-        return False, False
-
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
-
-    rsi        = float(last["rsi"])
-    adx        = float(last["adx"])
-    high_break = float(last["high"]) > float(prev["high"])
-    low_break  = float(last["low"])  < float(prev["low"])
-    close      = float(last["close"])
-    prev_close = float(prev["close"])
-
-    bearish_reversal = (
-        rsi >= REVERSAL_RSI_OVERBOUGHT[symbol_key]
-        and adx >= REVERSAL_ADX_MIN
-        and high_break
-        and close < prev_close
-    )
-
-    bullish_reversal = (
-        rsi <= REVERSAL_RSI_OVERSOLD[symbol_key]
-        and adx >= REVERSAL_ADX_MIN
-        and low_break
-        and close > prev_close
-    )
-
-    return bullish_reversal, bearish_reversal
-
 
 def detect_liquidity_sweep(df):
     """Detects price sweeping a prior swing high/low and reversing."""
@@ -468,6 +415,43 @@ def detect_liquidity_sweep(df):
 
     return bullish_sweep, bearish_sweep
 
+# ============================================================
+# ELITE REVERSAL DETECTION — now requires liquidity sweep
+# ============================================================
+def detect_reversal(df, symbol_key):
+    """Elite institutional reversal detection."""
+    if len(df) < 5:
+        return False, False
+
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    rsi        = float(last["rsi"])
+    adx        = float(last["adx"])
+    high_break = float(last["high"]) > float(prev["high"])
+    low_break  = float(last["low"])  < float(prev["low"])
+    close      = float(last["close"])
+    prev_close = float(prev["close"])
+
+    bull_sweep, bear_sweep = detect_liquidity_sweep(df)
+
+    bearish_reversal = (
+        rsi >= REVERSAL_RSI_OVERBOUGHT[symbol_key]
+        and adx >= REVERSAL_ADX_MIN
+        and high_break
+        and close < prev_close
+        and bear_sweep                  # now required
+    )
+
+    bullish_reversal = (
+        rsi <= REVERSAL_RSI_OVERSOLD[symbol_key]
+        and adx >= REVERSAL_ADX_MIN
+        and low_break
+        and close > prev_close
+        and bull_sweep                  # now required
+    )
+
+    return bullish_reversal, bearish_reversal
 
 # ============================================================
 # MARKET REGIME
@@ -481,20 +465,20 @@ def detect_market_regime(df):
     else:
         return "RANGE"
 
-
 # ============================================================
-# SCORE — Both BUY and SELL, reversal bonus applied
+# BUILD SCORE — EMA stack now includes EMA200, tighter RSI bands
 # ============================================================
 def build_score(df, trend, symbol_key):
-    last  = df.iloc[-1]
-    rsi   = float(last["rsi"])
-    ema9  = float(last["ema9"])
-    ema21 = float(last["ema21"])
-    ema50 = float(last["ema50"])
-    adx   = float(last["adx"])
-    vol   = float(last["volume"])
-    volma = float(last["volma"]) if not pd.isna(last["volma"]) else 0
-    atr   = float(last["atr"])
+    last   = df.iloc[-1]
+    rsi    = float(last["rsi"])
+    ema9   = float(last["ema9"])
+    ema21  = float(last["ema21"])
+    ema50  = float(last["ema50"])
+    ema200 = float(last["ema200"])
+    adx    = float(last["adx"])
+    vol    = float(last["volume"])
+    volma  = float(last["volma"]) if not pd.isna(last["volma"]) else 0
+    atr    = float(last["atr"])
 
     bull_fvg,   bear_fvg   = fair_value_gap(df)
     bull_choch, bear_choch = detect_choch(df)
@@ -506,8 +490,8 @@ def build_score(df, trend, symbol_key):
 
     buy = {
         "HTF":      trend == "BULL",
-        "EMA":      ema9 > ema21 > ema50,
-        "RSI":      56 <= rsi <= 72,
+        "EMA":      ema9 > ema21 > ema50 > ema200,    # now includes EMA200
+        "RSI":      58 <= rsi <= 70,                   # tightened from 56-72
         "ADX":      adx > ADX_THRESHOLD,
         "VOL":      volma > 0 and vol > volma * VOL_MULT,
         "FVG":      bull_fvg,
@@ -519,8 +503,8 @@ def build_score(df, trend, symbol_key):
 
     sell = {
         "HTF":      trend == "BEAR",
-        "EMA":      ema9 < ema21 < ema50,
-        "RSI":      rsi < 42,
+        "EMA":      ema9 < ema21 < ema50 < ema200,    # now includes EMA200
+        "RSI":      30 <= rsi <= 40,                   # tightened from <42
         "ADX":      adx > ADX_THRESHOLD,
         "VOL":      volma > 0 and vol > volma * VOL_MULT,
         "FVG":      bear_fvg,
@@ -533,7 +517,6 @@ def build_score(df, trend, symbol_key):
     buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
 
-    # Reversal score bonus
     if bull_rev:
         buy_score  += REVERSAL_SCORE_BONUS
     if bear_rev:
@@ -541,9 +524,8 @@ def build_score(df, trend, symbol_key):
 
     return buy, sell, buy_score, sell_score
 
-
 # ============================================================
-# LEVELS — swing low/high SL, regime-aware RR
+# LEVELS — XAU/USD RR raised to 3.0
 # ============================================================
 def calc_levels(price, atr, symbol_key, df, direction, reversal_mode):
     min_sl   = MARKETS[symbol_key]["min_sl"]
@@ -564,15 +546,14 @@ def calc_levels(price, atr, symbol_key, df, direction, reversal_mode):
         )
     )
 
-    # Reversal mode gets conservative RR; continuation gets full RR
     if reversal_mode:
         rr = 2.0
     else:
         if symbol_key == "XAU/USD":
-            rr = 2.7
+            rr = 3.0                   # raised from 2.7
         elif symbol_key == "NAS100":
             rr = 2.7
-        else:  # US500
+        else:
             rr = 2.5
 
     if direction == "BUY":
@@ -588,7 +569,6 @@ def calc_levels(price, atr, symbol_key, df, direction, reversal_mode):
         round(sl_dist, decimals),
         rr
     )
-
 
 # ============================================================
 # LOT SIZE
@@ -607,7 +587,6 @@ def lot_for_risk(price, sl, symbol_key, risk=25):
     }
 
     return round(max(0.01, min(lot, caps[symbol_key])), 3)
-
 
 # ============================================================
 # PROCESS SYMBOL
@@ -629,7 +608,6 @@ def process_symbol(symbol_key):
     if not ok:
         return
 
-    # Session curation: London and NY+London only
     if session not in LONDON_NY_ONLY:
         log.info(f"REJECTED {symbol_key} outside curated session ({session})")
         return
@@ -643,7 +621,7 @@ def process_symbol(symbol_key):
         return
 
     spread = get_spread(df)
-    if spread > MAX_SPREAD[symbol_key]:
+    if spread > MAX_SPREAD[symbol_key] * 0.85:      # tightened from 1.0x
         log.info(f"REJECTED {symbol_key} spread {spread:.4f}")
         return
 
@@ -664,7 +642,6 @@ def process_symbol(symbol_key):
     atr = float(df.iloc[-1]["atr"])
     dec = MARKETS[symbol_key]["decimals"]
 
-    # Determine reversal mode from score components
     bull_rev = buy.get("REVERSAL", False)
     bear_rev = sell.get("REVERSAL", False)
 
@@ -679,7 +656,6 @@ def process_symbol(symbol_key):
         f"Reversal: {reversal_mode}"
     )
 
-    # ── Regime-based score thresholds
     if regime == "RANGE" and best < RANGE_MIN_SCORE:
         log.info(f"REJECTED {symbol_key} RANGE score {best} < {RANGE_MIN_SCORE}")
         return
@@ -688,12 +664,10 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} TREND score {best} < {TREND_MIN_SCORE}")
         return
 
-    # ── Reversal mode needs higher confidence
     if reversal_mode and best < REVERSAL_MIN_SCORE:
         log.info(f"REJECTED {symbol_key} reversal score {best} < {REVERSAL_MIN_SCORE}")
         return
 
-    # ── Block countertrend trades unless reversal is confirmed
     if trend == "BULL" and direction == "SELL" and not reversal_mode:
         log.info(f"REJECTED {symbol_key} countertrend SELL without reversal")
         return
@@ -748,8 +722,8 @@ def process_symbol(symbol_key):
         f"💵 *Lot:* {lot}\n\n"
         f"✅ *Conditions:*\n"
         f"{cond_text}\n\n"
-        f"🛡 *CURATED INSTITUTIONAL ENTRY ACTIVE*\n"
-        f"⚡ *GLOBAL ELITE PRO+ CURATED MODE*"
+        f"🛡 *ELITE INSTITUTIONAL FILTER ACTIVE*\n"
+        f"⚡ *GLOBAL ELITE INSTITUTIONAL MODE*"
     )
 
     send_telegram(msg)
@@ -759,7 +733,6 @@ def process_symbol(symbol_key):
         f"Entry: {price} | SL: {sl} | TP: {tp} | "
         f"RR: {rr} | Type: {signal_type} | Regime: {regime} | TF: {timeframe}"
     )
-
 
 # ============================================================
 # MAIN LOOP
@@ -797,7 +770,6 @@ def main():
         except Exception as e:
             log.error(f"Main loop error: {e}")
             time.sleep(15)
-
 
 if __name__ == "__main__":
     main()
