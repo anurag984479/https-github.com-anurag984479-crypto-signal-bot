@@ -1,6 +1,6 @@
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER v21.5-GLOBAL-ELITE-INSTITUTIONAL
-# GOLD + NAS100 + US500 ONLY
+# GOLD + NAS100 + DE30 ONLY
 # CONTINUATION + REVERSAL | INSTITUTIONAL PRECISION ENGINE
 # ============================================================
 
@@ -53,27 +53,27 @@ MARKETS = {
         "tier":     "NAS100 ELITE",
         "bias":     "BULL",
     },
-    "US500": {
-        "mt5":      "US500.Qraw",
-        "yf":       "^GSPC",
-        "price_lo": 4500,
-        "price_hi": 9000,
-        "sessions": [13, 21],
-        "decimals": 2,
-        "min_sl":   25.0,
-        "tier":     "US500 ELITE",
+    "DE30": {
+        "mt5":      "DE30.Qraw",
+        "yf":       "^GDAXI",
+        "price_lo": 15000,
+        "price_hi": 25000,
+        "sessions": [7, 18],
+        "decimals": 1,
+        "min_sl":   35.0,
+        "tier":     "DE30 ELITE",
         "bias":     "BULL",
     },
 }
 
-SYMBOLS = ["XAU/USD", "NAS100", "US500"]
+SYMBOLS = ["XAU/USD", "NAS100", "DE30"]
 
 # ============================================================
 # CORE SETTINGS
 # ============================================================
 ATR_MULT               = 0.28
-VOL_MULT               = 1.05           # PATCHED: lowered from 1.10
-ADX_THRESHOLD          = 22             # PATCHED: lowered from 25
+VOL_MULT               = 1.05
+ADX_THRESHOLD          = 22
 SIGNAL_COOLDOWN        = 2700
 HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
@@ -82,26 +82,26 @@ MAX_CONSECUTIVE_LOSSES = 3
 # ============================================================
 # SCORE THRESHOLDS BY REGIME
 # ============================================================
-RANGE_MIN_SCORE    = 5                  # PATCHED: lowered from 7
+RANGE_MIN_SCORE    = 5
 TREND_MIN_SCORE    = 6
-REVERSAL_MIN_SCORE = 6                  # PATCHED: lowered from 8
+REVERSAL_MIN_SCORE = 6
 
 # ============================================================
 # REVERSAL SETTINGS
 # ============================================================
 REVERSAL_RSI_OVERBOUGHT = {
-    "XAU/USD": 72,                      # PATCHED: lowered from 74
+    "XAU/USD": 72,
     "NAS100":  78,
-    "US500":   77,
+    "DE30":    76,
 }
 
 REVERSAL_RSI_OVERSOLD = {
-    "XAU/USD": 31,                      # PATCHED: raised from 29
+    "XAU/USD": 31,
     "NAS100":  25,
-    "US500":   26,
+    "DE30":    27,
 }
 
-REVERSAL_ADX_MIN     = 25              # PATCHED: lowered from 30
+REVERSAL_ADX_MIN     = 25
 REVERSAL_SCORE_BONUS = 2
 
 # ============================================================
@@ -115,7 +115,7 @@ LONDON_NY_ONLY = ["London", "NY+London"]
 ATR_MARKET_MULTIPLIER = {
     "XAU/USD": 1.05,
     "NAS100":  1.03,
-    "US500":   1.02,
+    "DE30":    1.08,
 }
 
 # ============================================================
@@ -124,7 +124,7 @@ ATR_MARKET_MULTIPLIER = {
 DOLLAR_PER_POINT = {
     "XAU/USD": 100,
     "NAS100":  10,
-    "US500":   10,
+    "DE30":    10,
 }
 
 # ============================================================
@@ -133,7 +133,7 @@ DOLLAR_PER_POINT = {
 MAX_SPREAD = {
     "XAU/USD": 1.40,
     "NAS100":  4.0,
-    "US500":   2.0,
+    "DE30":    5.0,
 }
 
 # ============================================================
@@ -594,7 +594,7 @@ def calc_levels(price, atr, symbol_key, df, direction, reversal_mode):
         elif symbol_key == "NAS100":
             rr = 2.7
         else:
-            rr = 2.5
+            rr = 2.8
 
     if direction == "BUY":
         sl = price - sl_dist
@@ -623,7 +623,7 @@ def lot_for_risk(price, sl, symbol_key, risk=25):
     caps = {
         "XAU/USD": 1.50,
         "NAS100":  2.00,
-        "US500":   3.00,
+        "DE30":    1.50,
     }
 
     return round(max(0.01, min(lot, caps[symbol_key])), 3)
@@ -784,7 +784,7 @@ def main():
         f"📊 *Markets Active:*\n"
         f"🥇 XAU/USD\n"
         f"📈 NAS100\n"
-        f"🇺🇸 US500\n\n"
+        f"🇩🇪 DE30\n\n"
         f"🔄 Reversal + Continuation Engine Active\n"
         f"🛡 Curated Institutional Entry Active\n"
         f"⚡ Global Elite Pro+ Curated Mode"
