@@ -1,5 +1,3 @@
-Here is the complete updated code with only the signal numbering patch applied:
-
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER v22.1-INSTITUTIONAL-CONTINUATION-ONLY
 # GOLD + NAS100 + DE30 + US30
