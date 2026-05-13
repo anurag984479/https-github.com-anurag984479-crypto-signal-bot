@@ -1,7 +1,9 @@
+Here is the complete updated code with only the signal numbering patch applied:
+
 # ============================================================
-# PEPPERSTONE MOMENTUM HUNTER v22.0-INSTITUTIONAL-HEDGEFUND-ULTRA+
+# PEPPERSTONE MOMENTUM HUNTER v22.1-INSTITUTIONAL-CONTINUATION-ONLY
 # GOLD + NAS100 + DE30 + US30
-# CONTINUATION + REVERSAL | INSTITUTIONAL PRECISION ENGINE
+# PURE CONTINUATION | MAX WINRATE ENGINE
 # ============================================================
 
 import time
@@ -15,14 +17,14 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
-SYSTEM_VERSION = "v22.0-INSTITUTIONAL-HEDGEFUND-ULTRA+"  # PATCH 1
+SYSTEM_VERSION = "v22.1-INSTITUTIONAL-CONTINUATION-ONLY"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v21-curated")
+log = logging.getLogger("v22.1-continuation")
 
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
@@ -101,22 +103,22 @@ SIGNAL_COOLDOWN        = 3600
 HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
-MAIN_LOOP_DELAY        = 2  # PATCH 5
+MAIN_LOOP_DELAY        = 2
 
 STDV_PERIOD           = 20
 STDV_THRESHOLD_MULT   = 1.15
 AOX_FAST              = 5
 AOX_SLOW              = 34
-ASIA_ELITE_SESSION    = [0, 3]   # Gold only
+ASIA_ELITE_SESSION    = [0, 3]
 
 # ============================================================
 # EXECUTION SLIPPAGE BUFFER
 # ============================================================
 EXECUTION_BUFFER = {
     "XAU/USD": 0.20,
-    "NAS100":  2.5,   # PATCH 15
+    "NAS100":  2.5,
     "DE30":    3.0,
-    "US30":    2.5,   # PATCH 15
+    "US30":    2.5,
 }
 
 # ============================================================
@@ -124,7 +126,6 @@ EXECUTION_BUFFER = {
 # ============================================================
 RANGE_MIN_SCORE    = 5
 TREND_MIN_SCORE    = 6
-REVERSAL_MIN_SCORE = 6
 
 # ============================================================
 # MARKET STRUCTURE — CANDLE HISTORY SETTINGS
@@ -167,28 +168,8 @@ MARKET_MIN_STRUCTURE_SCORE = {
     "XAU/USD": 7,
     "NAS100":  8,
     "DE30":    7,
-    "US30":    8,  # PATCH 18
+    "US30":    8,
 }
-
-# ============================================================
-# REVERSAL SETTINGS
-# ============================================================
-REVERSAL_RSI_OVERBOUGHT = {
-    "XAU/USD": 72,
-    "NAS100":  78,
-    "DE30":    76,
-    "US30":    75,
-}
-
-REVERSAL_RSI_OVERSOLD = {
-    "XAU/USD": 31,
-    "NAS100":  25,
-    "DE30":    27,
-    "US30":    28,
-}
-
-REVERSAL_ADX_MIN     = 25
-REVERSAL_SCORE_BONUS = 2
 
 # ============================================================
 # SESSION CURATION
@@ -197,7 +178,7 @@ LONDON_NY_ONLY = [
     "Asia Elite",
     "London",
     "NY+London",
-    "NY Killzone"  # PATCH 3
+    "NY Killzone"
 ]
 
 # ============================================================
@@ -251,6 +232,7 @@ _signal_sent           = {s: 0 for s in SYMBOLS}
 _htf_cache             = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
 _last_signal_direction = {}
 _last_signal_time      = {}
+_signal_counter        = {s: {"session": None, "count": 0} for s in SYMBOLS}
 
 # ============================================================
 # DAILY RESET & TRADE TRACKING
@@ -283,7 +265,7 @@ def watchdog():
         with open("heartbeat.txt", "w") as f:
             f.write(
                 f"{datetime.now(timezone.utc).isoformat()} | "
-                f"{SYSTEM_VERSION} | ACTIVE"  # PATCH 8
+                f"{SYSTEM_VERSION} | ACTIVE"
             )
     except Exception as e:
         log.error(f"Watchdog failure: {e}")
@@ -344,7 +326,7 @@ def send_telegram(msg):
                     "text":       msg,
                     "parse_mode": "Markdown"
                 },
-                timeout=8  # PATCH 2
+                timeout=8
             )
             if r.status_code != 200:
                 log.error(
@@ -432,7 +414,7 @@ def in_session(symbol_key):
     if h < 7:
         return False, "Asian"
 
-    if 13 <= h < 15:          # PATCH 4 — NY Killzone (checked before NY+London)
+    if 13 <= h < 15:
         return True, "NY Killzone"
 
     if 12 <= h < 16:
@@ -461,7 +443,6 @@ def fetch_yf(ticker, period="15d", interval="5m"):
     except:
         return None
 
-# PATCH 7 — yfinance failure logging
 def get_entry_data(symbol_key):
     yf_sym = MARKETS[symbol_key]["yf"]
 
@@ -680,7 +661,6 @@ def institutional_structure_score(df, symbol_key):
         sell_score += 1
         sell_conditions["PREMIUM"] = True
 
-    # PATCH 12 — Perfect structure bonus
     if buy_score >= 8:
         buy_score += 1
 
@@ -693,45 +673,12 @@ def institutional_structure_score(df, symbol_key):
 # SUPPLY / DEMAND ZONE DETECTION
 # ============================================================
 def detect_supply_demand_zones(df):
-    """Institutional supply/demand zone detection for rejection block entries."""
     if len(df) < 20:
         return None, None
     recent = df.tail(20)
     supply = recent["high"].rolling(5).max().iloc[-1]
     demand = recent["low"].rolling(5).min().iloc[-1]
     return demand, supply
-
-# ============================================================
-# ELITE REVERSAL DETECTION
-# ============================================================
-def detect_reversal(df, symbol_key):
-    """Elite institutional reversal detection."""
-    if len(df) < 5:
-        return False, False
-    last       = df.iloc[-1]
-    prev       = df.iloc[-2]
-    rsi        = float(last["rsi"])
-    adx        = float(last["adx"])
-    high_break = float(last["high"]) > float(prev["high"])
-    low_break  = float(last["low"])  < float(prev["low"])
-    close      = float(last["close"])
-    prev_close = float(prev["close"])
-    bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
-    bearish_reversal = (
-        rsi >= REVERSAL_RSI_OVERBOUGHT[symbol_key]
-        and adx >= REVERSAL_ADX_MIN
-        and high_break
-        and close < prev_close
-        and bear_sweep
-    )
-    bullish_reversal = (
-        rsi <= REVERSAL_RSI_OVERSOLD[symbol_key]
-        and adx >= REVERSAL_ADX_MIN
-        and low_break
-        and close > prev_close
-        and bull_sweep
-    )
-    return bullish_reversal, bearish_reversal
 
 # ============================================================
 # MARKET REGIME
@@ -744,6 +691,29 @@ def detect_market_regime(df):
         return "TREND"
     else:
         return "RANGE"
+
+# ============================================================
+# SIGNAL COUNTER
+# ============================================================
+def get_signal_number(symbol_key, session):
+    global _signal_counter
+
+    if _signal_counter[symbol_key]["session"] != session:
+        _signal_counter[symbol_key]["session"] = session
+        _signal_counter[symbol_key]["count"]   = 1
+    else:
+        _signal_counter[symbol_key]["count"] += 1
+
+    signal_num = _signal_counter[symbol_key]["count"]
+
+    if signal_num == 1:
+        entry_type = "PRIMARY BREAKOUT"
+    elif signal_num == 2:
+        entry_type = "SECONDARY RETEST"
+    else:
+        entry_type = "ADVANCED CONTINUATION"
+
+    return signal_num, entry_type
 
 # ============================================================
 # BUILD SCORE
@@ -769,43 +739,43 @@ def build_score(df, trend, symbol_key):
 
     bull_fvg,   bear_fvg   = fair_value_gap(df)
     bull_choch, bear_choch = detect_choch(df)
-    bull_rev,   bear_rev   = detect_reversal(df, symbol_key)
     bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
     bull_wick,  bear_wick  = detect_wick_rejection(df, atr, symbol_key)
+
+    bull_rev = False
+    bear_rev = False
 
     bullish_break = float(last["close"]) > float(df.iloc[-2]["high"]) + atr * 0.12
     bearish_break = float(last["close"]) < float(df.iloc[-2]["low"])  - atr * 0.12
 
     buy = {
-        "HTF":      trend == "BULL",
-        "EMA":      ema9 > ema21 > ema50 > ema200,
-        "RSI":      56 <= rsi <= 72,
-        "ADX":      adx > ADX_THRESHOLD,
-        "VOL":      volma > 0 and vol > volma * VOL_MULT,
-        "FVG":      bull_fvg,
-        "CHOCH":    bull_choch,
-        "BOS":      bullish_break,
-        "REVERSAL": bull_rev,
-        "SWEEP":    bull_sweep,
-        "WICK":     bull_wick,
-        "STDV":     stdv_ma > 0 and stdv > stdv_ma * STDV_THRESHOLD_MULT,
-        "AOX":      aox > 0,
+        "HTF":   trend == "BULL",
+        "EMA":   ema9 > ema21 > ema50 > ema200,
+        "RSI":   56 <= rsi <= 72,
+        "ADX":   adx > ADX_THRESHOLD,
+        "VOL":   volma > 0 and vol > volma * VOL_MULT,
+        "FVG":   bull_fvg,
+        "CHOCH": bull_choch,
+        "BOS":   bullish_break,
+        "SWEEP": bull_sweep,
+        "WICK":  bull_wick,
+        "STDV":  stdv_ma > 0 and stdv > stdv_ma * STDV_THRESHOLD_MULT,
+        "AOX":   aox > 0,
     }
 
     sell = {
-        "HTF":      trend == "BEAR",
-        "EMA":      ema9 < ema21 < ema50 < ema200,
-        "RSI":      30 <= rsi <= 44,
-        "ADX":      adx > ADX_THRESHOLD,
-        "VOL":      volma > 0 and vol > volma * VOL_MULT,
-        "FVG":      bear_fvg,
-        "CHOCH":    bear_choch,
-        "BOS":      bearish_break,
-        "REVERSAL": bear_rev,
-        "SWEEP":    bear_sweep,
-        "WICK":     bear_wick,
-        "STDV":     stdv_ma > 0 and stdv > stdv_ma * STDV_THRESHOLD_MULT,
-        "AOX":      aox < 0,
+        "HTF":   trend == "BEAR",
+        "EMA":   ema9 < ema21 < ema50 < ema200,
+        "RSI":   30 <= rsi <= 44,
+        "ADX":   adx > ADX_THRESHOLD,
+        "VOL":   volma > 0 and vol > volma * VOL_MULT,
+        "FVG":   bear_fvg,
+        "CHOCH": bear_choch,
+        "BOS":   bearish_break,
+        "SWEEP": bear_sweep,
+        "WICK":  bear_wick,
+        "STDV":  stdv_ma > 0 and stdv > stdv_ma * STDV_THRESHOLD_MULT,
+        "AOX":   aox < 0,
     }
 
     buy_score  = sum(buy.values())
@@ -815,11 +785,6 @@ def build_score(df, trend, symbol_key):
         buy_score += 1
     if sell["STDV"] and sell["AOX"]:
         sell_score += 1
-
-    if bull_rev:
-        buy_score  += REVERSAL_SCORE_BONUS
-    if bear_rev:
-        sell_score += REVERSAL_SCORE_BONUS
 
     sweep_bonus = MARKETS[symbol_key]["sweep_bonus"]
     if bull_sweep and bull_wick:
@@ -832,13 +797,11 @@ def build_score(df, trend, symbol_key):
             buy_score  += 1
         if bear_sweep:
             sell_score += 1
-        # PATCH 17 — Gold sweep dominance wick boost
         if bull_wick:
             buy_score  += 1
         if bear_wick:
             sell_score += 1
 
-    # PATCH 11 — ADX breakout momentum boost
     if adx >= 35:
         if buy_score > sell_score:
             buy_score += 1
@@ -850,7 +813,7 @@ def build_score(df, trend, symbol_key):
 # ============================================================
 # LEVELS
 # ============================================================
-def calc_levels(price, atr, symbol_key, df, direction, reversal_mode, regime):
+def calc_levels(price, atr, symbol_key, df, direction, regime):
     min_sl   = MARKETS[symbol_key]["min_sl"]
     decimals = MARKETS[symbol_key]["decimals"]
     recent   = df.tail(8)
@@ -875,10 +838,9 @@ def calc_levels(price, atr, symbol_key, df, direction, reversal_mode, regime):
         else:
             sl_dist *= 1.25
 
-    rr = 2.0 if reversal_mode else MARKETS[symbol_key]["rr"]
+    rr = MARKETS[symbol_key]["rr"]
 
-    # PATCH 16 — DE30 breakout RR boost
-    if symbol_key == "DE30" and regime == "BREAKOUT" and not reversal_mode:
+    if symbol_key == "DE30" and regime == "BREAKOUT":
         rr += 0.2
 
     if direction == "BUY":
@@ -944,7 +906,7 @@ def process_symbol(symbol_key):
         return
 
     spread = get_spread(df)
-    if spread > MAX_SPREAD[symbol_key] * 0.90:  # PATCH 9
+    if spread > MAX_SPREAD[symbol_key] * 0.90:
         log.info(f"REJECTED {symbol_key} spread {spread:.4f}")
         return
 
@@ -957,7 +919,6 @@ def process_symbol(symbol_key):
     price = float(df.iloc[-1]["close"])
     atr   = float(df.iloc[-1]["atr"])
 
-    # PATCH 10 — Invalid price failsafe
     if price <= 0:
         log.info(f"REJECTED {symbol_key} invalid price")
         return
@@ -996,18 +957,14 @@ def process_symbol(symbol_key):
     adx = float(df.iloc[-1]["adx"])
     dec = MARKETS[symbol_key]["decimals"]
 
-    bull_rev = buy.get("REVERSAL", False)
-    bear_rev = sell.get("REVERSAL", False)
-
     best      = max(buy_score, sell_score)
     direction = "BUY" if buy_score >= sell_score else "SELL"
 
-    reversal_mode = bull_rev if direction == "BUY" else bear_rev
+    reversal_mode = False
 
     log.info(
         f"{symbol_key} | BUY: {buy_score} | SELL: {sell_score} | "
-        f"Regime: {regime} | Trend: {trend} | Session: {session} | "
-        f"Reversal: {reversal_mode}"
+        f"Regime: {regime} | Trend: {trend} | Session: {session}"
     )
 
     if symbol_key == "DE30":
@@ -1025,30 +982,26 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} TREND score {best} < {de30_trend_score}")
         return
 
-    if reversal_mode and best < REVERSAL_MIN_SCORE:
-        log.info(f"REJECTED {symbol_key} reversal score {best} < {REVERSAL_MIN_SCORE}")
-        return
-
     best_structure_score = max(structure_buy_score, structure_sell_score)
     if best_structure_score < MARKET_MIN_STRUCTURE_SCORE[symbol_key]:
         log.info(f"REJECTED {symbol_key} weak structure score {best_structure_score}")
         return
 
-    if trend == "BULL" and direction == "SELL" and not reversal_mode:
-        log.info(f"REJECTED {symbol_key} countertrend SELL without reversal")
+    if trend == "BULL" and direction == "SELL":
+        log.info(f"REJECTED {symbol_key} countertrend SELL blocked")
         return
 
-    if trend == "BEAR" and direction == "BUY" and not reversal_mode:
-        log.info(f"REJECTED {symbol_key} countertrend BUY without reversal")
+    if trend == "BEAR" and direction == "BUY":
+        log.info(f"REJECTED {symbol_key} countertrend BUY blocked")
         return
 
     if direction == "SELL" and supply_zone:
-        if price < supply_zone * 0.998:  # PATCH 13
+        if price < supply_zone * 0.998:
             log.info(f"REJECTED {symbol_key} weak supply rejection")
             return
 
     if direction == "BUY" and demand_zone:
-        if price > demand_zone * 1.002:  # PATCH 13
+        if price > demand_zone * 1.002:
             log.info(f"REJECTED {symbol_key} weak demand rejection")
             return
 
@@ -1078,10 +1031,11 @@ def process_symbol(symbol_key):
     else:
         price -= EXECUTION_BUFFER[symbol_key]
 
-    sl, tp, sl_dist, rr = calc_levels(price, atr, symbol_key, df, direction, reversal_mode, regime)
+    sl, tp, sl_dist, rr = calc_levels(price, atr, symbol_key, df, direction, regime)
     lot                  = lot_for_risk(price, sl, symbol_key)
     timeframe            = REGIME_TIMEFRAME.get(regime, "1H / 4H")
-    signal_type          = "REVERSAL" if reversal_mode else "CONTINUATION"
+    signal_type          = "CONTINUATION"
+    signal_num, entry_type = get_signal_number(symbol_key, session)
 
     log_signal(symbol_key, direction, best, rr, price, sl, tp,
                session, regime, timeframe, signal_type)
@@ -1096,14 +1050,15 @@ def process_symbol(symbol_key):
         cond_text += "\n SUPPLY_ZONE"
 
     action_emoji = "📈" if direction == "BUY" else "📉"
-    type_emoji   = "🔄" if reversal_mode else "🚀"
 
     msg = (
-        f"🎯 *{SYSTEM_VERSION}* | INSTITUTIONAL EXECUTION\n"  # PATCH 19
+        f"🎯 *{SYSTEM_VERSION}* | INSTITUTIONAL EXECUTION\n"
         f"*{MARKETS[symbol_key]['mt5']}* | ⭐⭐⭐⭐⭐ {MARKETS[symbol_key]['tier']}\n\n"
         f"🔥 *Action:* {direction} {action_emoji}\n"
-        f"{type_emoji} *Signal Type:* {signal_type}\n"
-        f"⭐ *Score:* {best}\n"  # PATCH 14
+        f"🎯 *Signal #:* {signal_num}\n"
+        f"📍 *Entry Type:* {entry_type}\n"
+        f"🚀 *Signal Type:* CONTINUATION\n"
+        f"⭐ *Score:* {best}\n"
         f"🧠 *Regime:* {regime}\n"
         f"⏱ *Timeframe:* {timeframe}\n"
         f"📊 *Market Bias:* {MARKETS[symbol_key]['bias']}\n\n"
@@ -1127,7 +1082,8 @@ def process_symbol(symbol_key):
     log.info(
         f"SIGNAL SENT {symbol_key} {direction} | "
         f"Entry: {price} | SL: {sl} | TP: {tp} | "
-        f"RR: {rr} | Type: {signal_type} | Regime: {regime} | TF: {timeframe}"
+        f"RR: {rr} | Type: CONTINUATION | Signal#: {signal_num} | "
+        f"EntryType: {entry_type} | Regime: {regime} | TF: {timeframe}"
     )
 
 # ============================================================
@@ -1142,7 +1098,7 @@ def main():
         f"📈 NAS100\n"
         f"🇩🇪 DE30\n"
         f"🇺🇸 US30\n\n"
-        f"🔄 Reversal + Continuation Engine Active\n"
+        f"🚀 Pure Continuation Engine Active\n"
         f"🛡 Curated Institutional Entry Active\n"
         f"⚡ Global Elite Pro+ Curated Mode"
     )
@@ -1157,7 +1113,7 @@ def main():
                     futures.append(
                         executor.submit(process_symbol, symbol)
                     )
-                    time.sleep(0.15)  # PATCH 6
+                    time.sleep(0.15)
 
                 for future in as_completed(futures):
                     try:
