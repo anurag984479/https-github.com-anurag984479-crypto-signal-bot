@@ -261,16 +261,45 @@ def loss_streak_lock():
         return True
     return False
 
+# ============================================================
+# DUPLICATE SIGNAL FILTER (ADAPTIVE INSTITUTIONAL COOLDOWN)
+# ============================================================
 def duplicate_signal(symbol_key, direction):
     now = time.time()
+
+    # ========================================================
+    # ADAPTIVE DUPLICATE WINDOWS BY MARKET
+    # ========================================================
+    duplicate_windows = {
+        "XAU/USD": 3600,   # Gold = 60 min
+        "NAS100":  4500,   # NAS  = 75 min
+        "DE30":    5400,   # DE30 = 90 min
+    }
+
+    cooldown = duplicate_windows.get(symbol_key, 5400)
+
+    # ========================================================
+    # BLOCK DUPLICATE SAME-DIRECTION SIGNALS
+    # ========================================================
     if (
         _last_signal_direction.get(symbol_key) == direction
-        and now - _last_signal_time.get(symbol_key, 0) < 5400
+        and now - _last_signal_time.get(symbol_key, 0) < cooldown
     ):
-        log.info(f"Duplicate signal blocked for {symbol_key}")
+        remaining = int(
+            cooldown - (now - _last_signal_time.get(symbol_key, 0))
+        )
+        log.info(
+            f"Duplicate signal blocked for {symbol_key} "
+            f"({remaining}s remaining)"
+        )
         return True
+
+    # ========================================================
+    # STORE NEW SIGNAL
+    # ========================================================
     _last_signal_direction[symbol_key] = direction
     _last_signal_time[symbol_key]      = now
+
     return False
 
 def economic_news_block():
