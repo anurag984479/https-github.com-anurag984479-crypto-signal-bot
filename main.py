@@ -1,5 +1,5 @@
 # ============================================================
-# PEPPERSTONE MOMENTUM HUNTER v21.5-GLOBAL-ELITE-INSTITUTIONAL
+# PEPPERSTONE MOMENTUM HUNTER v21.5-INSTITUTIONAL-PRO+
 # GOLD + NAS100 + DE30 ONLY
 # CONTINUATION + REVERSAL | INSTITUTIONAL PRECISION ENGINE
 # ============================================================
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
-SYSTEM_VERSION = "v21.5-GLOBAL-ELITE-INSTITUTIONAL"
+SYSTEM_VERSION = "v21.5-INSTITUTIONAL-PRO+"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -79,6 +79,12 @@ HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
 
+STDV_PERIOD           = 20
+STDV_THRESHOLD_MULT   = 1.15
+AOX_FAST              = 5
+AOX_SLOW              = 34
+ASIA_ELITE_SESSION    = [0, 3]   # Gold only
+
 # ============================================================
 # SCORE THRESHOLDS BY REGIME
 # ============================================================
@@ -107,7 +113,7 @@ REVERSAL_SCORE_BONUS = 2
 # ============================================================
 # SESSION CURATION
 # ============================================================
-LONDON_NY_ONLY = ["London", "NY+London"]
+LONDON_NY_ONLY = ["Asia Elite", "London", "NY+London"]
 
 # ============================================================
 # ATR MULTIPLIERS
@@ -271,11 +277,16 @@ def economic_news_block():
     return False
 
 # ============================================================
-# SESSION FILTER — London + NY+London only (NY alone blocked)
+# SESSION FILTER — Asia Elite (Gold only), London, NY+London
 # ============================================================
 def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
     s, e = MARKETS[symbol_key]["sessions"]
+
+    # Gold-only Asia Elite session
+    if symbol_key == "XAU/USD":
+        if ASIA_ELITE_SESSION[0] <= h < ASIA_ELITE_SESSION[1]:
+            return True, "Asia Elite"
 
     if not (s <= h < e):
         return False, "Closed"
@@ -335,15 +346,19 @@ def add_ind(df):
     hi  = pd.to_numeric(df["high"])
     lo  = pd.to_numeric(df["low"])
     vol = pd.to_numeric(df["volume"])
-    df["ema9"]   = ta.trend.EMAIndicator(cl, 9).ema_indicator()
-    df["ema21"]  = ta.trend.EMAIndicator(cl, 21).ema_indicator()
-    df["ema50"]  = ta.trend.EMAIndicator(cl, 50).ema_indicator()
-    df["ema200"] = ta.trend.EMAIndicator(cl, 200).ema_indicator()
-    df["rsi"]    = ta.momentum.RSIIndicator(cl, 14).rsi()
-    df["atr"]    = ta.volatility.AverageTrueRange(hi, lo, cl, 14).average_true_range()
-    df["adx"]    = ta.trend.ADXIndicator(hi, lo, cl, 14).adx()
-    df["volma"]  = vol.rolling(20).mean()
-    df["vwap"]   = (cl * vol).cumsum() / vol.cumsum()
+    df["ema9"]     = ta.trend.EMAIndicator(cl, 9).ema_indicator()
+    df["ema21"]    = ta.trend.EMAIndicator(cl, 21).ema_indicator()
+    df["ema50"]    = ta.trend.EMAIndicator(cl, 50).ema_indicator()
+    df["ema200"]   = ta.trend.EMAIndicator(cl, 200).ema_indicator()
+    df["rsi"]      = ta.momentum.RSIIndicator(cl, 14).rsi()
+    df["atr"]      = ta.volatility.AverageTrueRange(hi, lo, cl, 14).average_true_range()
+    df["adx"]      = ta.trend.ADXIndicator(hi, lo, cl, 14).adx()
+    df["volma"]    = vol.rolling(20).mean()
+    df["vwap"]     = (cl * vol).cumsum() / vol.cumsum()
+    df["stdv"]     = cl.rolling(STDV_PERIOD).std()
+    df["aox_fast"] = ta.trend.EMAIndicator(cl, AOX_FAST).ema_indicator()
+    df["aox_slow"] = ta.trend.EMAIndicator(cl, AOX_SLOW).ema_indicator()
+    df["aox"]      = df["aox_fast"] - df["aox_slow"]
     return df
 
 # ============================================================
@@ -506,6 +521,13 @@ def build_score(df, trend, symbol_key):
     volma  = float(last["volma"]) if not pd.isna(last["volma"]) else 0
     atr    = float(last["atr"])
 
+    stdv = float(last["stdv"]) if not pd.isna(last["stdv"]) else 0
+    stdv_ma = (
+        df["stdv"].rolling(STDV_PERIOD).mean().iloc[-1]
+        if len(df) > STDV_PERIOD else 0
+    )
+    aox = float(last["aox"]) if not pd.isna(last["aox"]) else 0
+
     bull_fvg,   bear_fvg   = fair_value_gap(df)
     bull_choch, bear_choch = detect_choch(df)
     bull_rev,   bear_rev   = detect_reversal(df, symbol_key)
@@ -527,6 +549,8 @@ def build_score(df, trend, symbol_key):
         "REVERSAL": bull_rev,
         "SWEEP":    bull_sweep,
         "WICK":     bull_wick,
+        "STDV":     stdv_ma > 0 and stdv > stdv_ma * STDV_THRESHOLD_MULT,
+        "AOX":      aox > 0,
     }
 
     sell = {
@@ -541,10 +565,18 @@ def build_score(df, trend, symbol_key):
         "REVERSAL": bear_rev,
         "SWEEP":    bear_sweep,
         "WICK":     bear_wick,
+        "STDV":     stdv_ma > 0 and stdv > stdv_ma * STDV_THRESHOLD_MULT,
+        "AOX":      aox < 0,
     }
 
     buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
+
+    if buy["STDV"] and buy["AOX"]:
+        buy_score += 1
+
+    if sell["STDV"] and sell["AOX"]:
+        sell_score += 1
 
     if bull_rev:
         buy_score  += REVERSAL_SCORE_BONUS
@@ -747,7 +779,7 @@ def process_symbol(symbol_key):
         f"*{MARKETS[symbol_key]['mt5']}* | ⭐⭐⭐⭐⭐ {MARKETS[symbol_key]['tier']}\n\n"
         f"🔥 *Action:* {direction} {action_emoji}\n"
         f"{type_emoji} *Signal Type:* {signal_type}\n"
-        f"⭐ *Score:* {best}/10\n"
+        f"⭐ *Score:* {best}/13\n"
         f"🧠 *Regime:* {regime}\n"
         f"⏱ *Timeframe:* {timeframe}\n"
         f"📊 *Market Bias:* {MARKETS[symbol_key]['bias']}\n\n"
