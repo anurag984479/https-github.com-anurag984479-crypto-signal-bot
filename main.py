@@ -1,5 +1,6 @@
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER v22.1-INSTITUTIONAL-CONTINUATION-ONLY
+# HYBRID V23 + SESSION EXPANSION + ASIA ELITE PRECISION PATCH
 # GOLD + NAS100 + DE30 + US30
 # PURE CONTINUATION | MAX WINRATE ENGINE
 # ============================================================
@@ -36,7 +37,7 @@ MARKETS = {
         "yf":         "GC=F",
         "price_lo":   4000,
         "price_hi":   7000,
-        "sessions":   [7, 20],
+        "sessions":   [0, 20],
         "decimals":   2,
         "min_sl":     7.0,
         "tier":       "GOLD ELITE",
@@ -50,7 +51,7 @@ MARKETS = {
         "yf":         "^NDX",
         "price_lo":   15000,
         "price_hi":   30000,
-        "sessions":   [13, 21],
+        "sessions":   [0, 21],
         "decimals":   1,
         "min_sl":     55.0,
         "tier":       "NASDAQ ELITE",
@@ -64,7 +65,7 @@ MARKETS = {
         "yf":         "^GDAXI",
         "price_lo":   15000,
         "price_hi":   25000,
-        "sessions":   [7, 18],
+        "sessions":   [0, 18],
         "decimals":   1,
         "min_sl":     50.0,
         "tier":       "DE30 ELITE",
@@ -78,7 +79,7 @@ MARKETS = {
         "yf":         "^DJI",
         "price_lo":   30000,
         "price_hi":   50000,
-        "sessions":   [13, 21],
+        "sessions":   [0, 21],
         "decimals":   1,
         "min_sl":     65.0,
         "tier":       "US30 ELITE",
@@ -95,8 +96,8 @@ SYMBOLS = ["XAU/USD", "NAS100", "DE30", "US30"]
 # CORE SETTINGS
 # ============================================================
 ATR_MULT               = 0.28
-VOL_MULT               = 1.05
-ADX_THRESHOLD          = 24
+VOL_MULT               = 1.15
+ADX_THRESHOLD          = 26
 SIGNAL_COOLDOWN        = 3600
 HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
@@ -108,6 +109,10 @@ STDV_THRESHOLD_MULT   = 1.15
 AOX_FAST              = 5
 AOX_SLOW              = 34
 
+ENABLE_WIZARD_AI       = True
+WIZARD_MIN_SCORE       = 20
+WIZARD_VOLUME_MULT     = 1.5
+WIZARD_ADX_THRESHOLD   = 25
 
 # ============================================================
 # EXECUTION SLIPPAGE BUFFER
@@ -122,8 +127,8 @@ EXECUTION_BUFFER = {
 # ============================================================
 # SCORE THRESHOLDS BY REGIME
 # ============================================================
-RANGE_MIN_SCORE    = 5
-TREND_MIN_SCORE    = 6
+RANGE_MIN_SCORE    = 7
+TREND_MIN_SCORE    = 8
 
 # ============================================================
 # MARKET STRUCTURE — CANDLE HISTORY SETTINGS
@@ -172,7 +177,8 @@ MARKET_MIN_STRUCTURE_SCORE = {
 # ============================================================
 # SESSION CURATION
 # ============================================================
-LONDON_NY_ONLY = [
+ALLOWED_SESSIONS = [
+    "Asian Precision",
     "London",
     "NY+London",
     "NY Killzone"
@@ -364,10 +370,10 @@ def duplicate_signal(symbol_key, direction):
     now = time.time()
 
     duplicate_windows = {
-        "XAU/USD": 3600,
-        "NAS100":  5400,
-        "DE30":    10800,
-        "US30":    5400,
+        "XAU/USD": 5400,
+        "NAS100":  7200,
+        "DE30":    14400,
+        "US30":    7200,
     }
 
     cooldown = duplicate_windows.get(symbol_key, 5400)
@@ -395,37 +401,33 @@ def get_scan_delay(symbol_key):
     return delays.get(symbol_key, 5)
 
 # ============================================================
-# SESSION FILTER
-# ============================================================
-# ============================================================
-# SESSION FILTER (FINAL OPTIMIZED VERSION)
+# SESSION FILTER — PATCH 1
 # ============================================================
 def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
     s, e = MARKETS[symbol_key]["sessions"]
 
-    # Outside official market hours
     if not (s <= h < e):
         return False, "Closed"
 
-    # Block Asia / pre-London completely
-    if h < 7:
-        return False, "Asian"
+    # Asia Precision — narrowed for cleaner liquidity
+    if 1 <= h < 6:
+        return True, "Asian Precision"
 
     # London Session
-    if 7 <= h < 12:
+    if 8 <= h < 11:
         return True, "London"
 
-    # NY Killzone (highest priority)
+    # New York Killzone
     if 13 <= h < 15:
         return True, "NY Killzone"
 
-    # London + NY overlap
-    if 12 <= h < 16:
+    # London + NY Overlap
+    if 14 <= h < 16:
         return True, "NY+London"
 
-    # All late NY blocked for continuation precision
     return False, "Closed"
+
 # ============================================================
 # DATA FETCHING
 # ============================================================
@@ -812,6 +814,90 @@ def build_score(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score
 
 # ============================================================
+# WIZARD AI CONFIRMATION
+# ============================================================
+def wizard_ai_confirmation(df, symbol_key, direction):
+    if len(df) < 250:
+        return False, 0
+
+    last = df.iloc[-1]
+
+    close  = float(last["close"])
+    ema50  = float(last["ema50"])
+    ema200 = float(last["ema200"])
+    rsi    = float(last["rsi"])
+    adx    = float(last["adx"])
+    volume = float(last["volume"])
+    volma  = float(last["volma"]) if not pd.isna(last["volma"]) else 0
+    aox    = float(last["aox"]) if not pd.isna(last["aox"]) else 0
+
+    score = 0
+
+    if direction == "BUY":
+        if close > ema50:
+            score += 3
+        if ema50 > ema200:
+            score += 3
+        if rsi > 55:
+            score += 2
+        if adx > WIZARD_ADX_THRESHOLD:
+            score += 2
+        if aox > 0:
+            score += 2
+
+    elif direction == "SELL":
+        if close < ema50:
+            score += 3
+        if ema50 < ema200:
+            score += 3
+        if rsi < 45:
+            score += 2
+        if adx > WIZARD_ADX_THRESHOLD:
+            score += 2
+        if aox < 0:
+            score += 2
+
+    if volma > 0 and volume > volma * WIZARD_VOLUME_MULT:
+        score += 3
+
+    bull_fvg, bear_fvg     = fair_value_gap(df)
+    bull_choch, bear_choch = detect_choch(df)
+    bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
+    bull_wick, bear_wick   = detect_wick_rejection(df, float(last["atr"]), symbol_key)
+
+    if direction == "BUY":
+        if bull_fvg:
+            score += 2
+        if bull_choch:
+            score += 2
+        if bull_sweep:
+            score += 3
+        if bull_wick:
+            score += 2
+
+    elif direction == "SELL":
+        if bear_fvg:
+            score += 2
+        if bear_choch:
+            score += 2
+        if bear_sweep:
+            score += 3
+        if bear_wick:
+            score += 2
+
+    pd_zone = premium_discount(df, symbol_key)
+
+    if direction == "BUY" and pd_zone["discount"]:
+        score += 2
+
+    if direction == "SELL" and pd_zone["premium"]:
+        score += 2
+
+    passed = score >= WIZARD_MIN_SCORE
+
+    return passed, score
+
+# ============================================================
 # LEVELS
 # ============================================================
 def calc_levels(price, atr, symbol_key, df, direction, regime):
@@ -861,7 +947,7 @@ def calc_levels(price, atr, symbol_key, df, direction, regime):
 # ============================================================
 # LOT SIZE
 # ============================================================
-def lot_for_risk(price, sl, symbol_key, risk=25):
+def lot_for_risk(price, sl, symbol_key, risk=50):
     sl_dist = abs(price - sl)
     if sl_dist <= 0:
         return 0.01
@@ -894,7 +980,7 @@ def process_symbol(symbol_key):
     if not ok:
         return
 
-    if session not in LONDON_NY_ONLY:
+    if session not in ALLOWED_SESSIONS:
         log.info(f"REJECTED {symbol_key} outside curated session ({session})")
         return
 
@@ -942,6 +1028,9 @@ def process_symbol(symbol_key):
     trend  = get_trend(symbol_key)
     regime = detect_market_regime(df)
 
+    # Asia Precision Mode flag
+    asia_mode = session == "Asian Precision"
+
     buy, sell, buy_score, sell_score = build_score(df, trend, symbol_key)
 
     structure_buy, structure_sell, structure_buy_score, structure_sell_score = (
@@ -961,6 +1050,38 @@ def process_symbol(symbol_key):
     best      = max(buy_score, sell_score)
     direction = "BUY" if buy_score >= sell_score else "SELL"
 
+    # Asia bonus for very strong scores
+    if asia_mode:
+        buy_score  += 1 if buy_score  >= 9 else 0
+        sell_score += 1 if sell_score >= 9 else 0
+        best = max(buy_score, sell_score)
+
+    # ============================================================
+    # PATCH 2 — ASIA ELITE FILTER
+    # ============================================================
+    if asia_mode:
+
+        # Tighten spread during Asia
+        asia_spread_cap = MAX_SPREAD[symbol_key] * 0.75
+        if spread > asia_spread_cap:
+            log.info(
+                f"REJECTED {symbol_key} Asia spread too high "
+                f"({spread:.4f} > {asia_spread_cap:.4f})"
+            )
+            return
+
+        # Indices require much stronger score in Asia
+        if symbol_key in ["NAS100", "US30", "DE30"]:
+            if max(buy_score, sell_score) < 11:
+                log.info(f"REJECTED {symbol_key} weak Asia index score")
+                return
+
+        # Gold slightly easier due to better Asia behavior
+        if symbol_key == "XAU/USD":
+            if max(buy_score, sell_score) < 10:
+                log.info(f"REJECTED {symbol_key} weak Asia gold score")
+                return
+
     reversal_mode = False
 
     log.info(
@@ -975,12 +1096,20 @@ def process_symbol(symbol_key):
         de30_range_score = RANGE_MIN_SCORE
         de30_trend_score = TREND_MIN_SCORE
 
-    if regime == "RANGE" and best < de30_range_score:
-        log.info(f"REJECTED {symbol_key} RANGE score {best} < {de30_range_score}")
+    # PATCH 5 — Asia score thresholds
+    if asia_mode:
+        RANGE_MIN_SCORE_ASIA = 10
+        TREND_MIN_SCORE_ASIA = 11
+    else:
+        RANGE_MIN_SCORE_ASIA = RANGE_MIN_SCORE
+        TREND_MIN_SCORE_ASIA = TREND_MIN_SCORE
+
+    if regime == "RANGE" and best < max(de30_range_score, RANGE_MIN_SCORE_ASIA):
+        log.info(f"REJECTED {symbol_key} RANGE score too low for session")
         return
 
-    if regime in ["TREND", "BREAKOUT"] and best < de30_trend_score:
-        log.info(f"REJECTED {symbol_key} TREND score {best} < {de30_trend_score}")
+    if regime in ["TREND", "BREAKOUT"] and best < max(de30_trend_score, TREND_MIN_SCORE_ASIA):
+        log.info(f"REJECTED {symbol_key} TREND score too low for session")
         return
 
     best_structure_score = max(structure_buy_score, structure_sell_score)
@@ -1016,6 +1145,24 @@ def process_symbol(symbol_key):
             log.info(f"REJECTED {symbol_key} late BUY drift")
             return
 
+    if ENABLE_WIZARD_AI:
+        wizard_pass, wizard_score = wizard_ai_confirmation(
+            df,
+            symbol_key,
+            direction
+        )
+
+        if not wizard_pass:
+            log.info(
+                f"REJECTED {symbol_key} Wizard AI failed | "
+                f"Score: {wizard_score}"
+            )
+            return
+
+        best += int(wizard_score * 0.30)
+    else:
+        wizard_score = 0
+
     if duplicate_signal(symbol_key, direction):
         return
 
@@ -1033,7 +1180,13 @@ def process_symbol(symbol_key):
         price -= EXECUTION_BUFFER[symbol_key]
 
     sl, tp, sl_dist, rr = calc_levels(price, atr, symbol_key, df, direction, regime)
-    lot                  = lot_for_risk(price, sl, symbol_key)
+
+    # PATCH 3 — Asia lot reduction 50%
+    lot = lot_for_risk(price, sl, symbol_key)
+    if asia_mode:
+        lot *= 0.50
+        lot = round(lot, 3)
+
     timeframe            = REGIME_TIMEFRAME.get(regime, "1H / 4H")
     signal_type          = "CONTINUATION"
     signal_num, entry_type = get_signal_number(symbol_key, session)
@@ -1052,6 +1205,7 @@ def process_symbol(symbol_key):
 
     action_emoji = "📈" if direction == "BUY" else "📉"
 
+    # PATCH 4 — upgraded mode label
     msg = (
         f"🎯 *{SYSTEM_VERSION}* | INSTITUTIONAL EXECUTION\n"
         f"*{MARKETS[symbol_key]['mt5']}* | ⭐⭐⭐⭐⭐ {MARKETS[symbol_key]['tier']}\n\n"
@@ -1060,6 +1214,7 @@ def process_symbol(symbol_key):
         f"📍 *Entry Type:* {entry_type}\n"
         f"🚀 *Signal Type:* CONTINUATION\n"
         f"⭐ *Score:* {best}\n"
+        f"🧠 *Wizard AI Score:* {wizard_score if ENABLE_WIZARD_AI else 'OFF'}\n"
         f"🧠 *Regime:* {regime}\n"
         f"⏱ *Timeframe:* {timeframe}\n"
         f"📊 *Market Bias:* {MARKETS[symbol_key]['bias']}\n\n"
@@ -1070,6 +1225,7 @@ def process_symbol(symbol_key):
         f"📉 *ADX:* {adx:.1f}\n"
         f"🌍 *Trend:* {trend}\n"
         f"⏰ *Session:* {session}\n"
+        f"🧠 *Mode:* {'ASIA ELITE PRECISION' if asia_mode else 'CORE INSTITUTIONAL'}\n"
         f"📡 *Source:* {source}\n\n"
         f"💵 *Lot:* {lot}\n\n"
         f"✅ *Conditions:*\n"
