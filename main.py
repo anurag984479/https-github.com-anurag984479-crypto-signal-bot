@@ -107,7 +107,7 @@ STDV_PERIOD           = 20
 STDV_THRESHOLD_MULT   = 1.15
 AOX_FAST              = 5
 AOX_SLOW              = 34
-ASIA_ELITE_SESSION    = [0, 3]
+
 
 # ============================================================
 # EXECUTION SLIPPAGE BUFFER
@@ -173,7 +173,6 @@ MARKET_MIN_STRUCTURE_SCORE = {
 # SESSION CURATION
 # ============================================================
 LONDON_NY_ONLY = [
-    "Asia Elite",
     "London",
     "NY+London",
     "NY Killzone"
@@ -398,31 +397,35 @@ def get_scan_delay(symbol_key):
 # ============================================================
 # SESSION FILTER
 # ============================================================
+# ============================================================
+# SESSION FILTER (FINAL OPTIMIZED VERSION)
+# ============================================================
 def in_session(symbol_key):
     h = datetime.now(timezone.utc).hour
     s, e = MARKETS[symbol_key]["sessions"]
 
-    if symbol_key == "XAU/USD":
-        if ASIA_ELITE_SESSION[0] <= h < ASIA_ELITE_SESSION[1]:
-            return True, "Asia Elite"
-
+    # Outside official market hours
     if not (s <= h < e):
         return False, "Closed"
 
+    # Block Asia / pre-London completely
     if h < 7:
         return False, "Asian"
 
-    if 13 <= h < 15:
-        return True, "NY Killzone"
-
-    if 12 <= h < 16:
-        return True, "NY+London"
-
+    # London Session
     if 7 <= h < 12:
         return True, "London"
 
-    return False, "NY"
+    # NY Killzone (highest priority)
+    if 13 <= h < 15:
+        return True, "NY Killzone"
 
+    # London + NY overlap
+    if 12 <= h < 16:
+        return True, "NY+London"
+
+    # All late NY blocked for continuation precision
+    return False, "Closed"
 # ============================================================
 # DATA FETCHING
 # ============================================================
