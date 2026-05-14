@@ -27,7 +27,6 @@ log = logging.getLogger("v22.1-continuation")
 
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
-
 # ============================================================
 # MARKETS
 # ============================================================
