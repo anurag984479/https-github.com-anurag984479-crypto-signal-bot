@@ -1,7 +1,8 @@
 # ============================================================
-# PEPPERSTONE MOMENTUM HUNTER v24.0
-# FULLY HARDENED — THREAD SAFE — PRODUCTION GRADE
-# GOLD + NAS100 + DE30 + US30 + EUR/USD + GBP/USD + USD/JPY + SPX500 + XAG/USD
+# PEPPERSTONE MOMENTUM HUNTER
+# ULTIMATE-HYBRID-SUPREME
+# XAU/USD + NAS100 + DE30 + US30
+# MAXIMUM WINRATE ENGINE
 # ============================================================
 
 import gc
@@ -17,174 +18,110 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
-SYSTEM_VERSION = "v24.0-INSTITUTIONAL-CONTINUATION-ONLY"
+SYSTEM_VERSION = "ULTIMATE-HYBRID-SUPREME"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v24.0-continuation")
+log = logging.getLogger("ULTIMATE-SUPREME")
 
-# Secure credentials with validation
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
-if not TOKEN or not CHAT_ID:
-    raise RuntimeError(
-        "TOKEN and CHAT_ID environment variables must be set."
-    )
-
-# HTTP session reuse
 session_http = requests.Session()
+signal_lock  = Lock()
+log_lock     = Lock()
 
-# Thread locks
-signal_lock = Lock()
-log_lock    = Lock()
+# ============================================================
+# PRIORITY MARKETS
+# ============================================================
+PRIORITY_MARKETS = ["XAU/USD", "NAS100", "US30"]
+
+# ============================================================
+# SESSION SCORE THRESHOLDS
+# ============================================================
+SESSION_THRESHOLDS = {
+    "Asian Precision": 22,
+    "London":          18,
+    "NY Killzone":     18,
+    "NY+London":       17,
+}
+
+# ============================================================
+# DYNAMIC RR PROFILES
+# ============================================================
+RR_PROFILE = {
+    "XAU/USD": {"TREND": 3.2, "BREAKOUT": 3.8, "RANGE": 2.4},
+    "NAS100":  {"TREND": 3.0, "BREAKOUT": 3.5, "RANGE": 2.3},
+    "DE30":    {"TREND": 3.1, "BREAKOUT": 3.7, "RANGE": 2.4},
+    "US30":    {"TREND": 2.9, "BREAKOUT": 3.4, "RANGE": 2.2},
+}
 
 # ============================================================
 # MARKETS
 # ============================================================
 MARKETS = {
     "XAU/USD": {
-        "mt5":        "XAUUSD.Qraw",
-        "yf":         "GC=F",
-        "price_lo":   4000,
-        "price_hi":   7000,
-        "sessions":   [0, 20],
-        "decimals":   2,
-        "min_sl":     7.0,
-        "tier":       "GOLD ELITE",
-        "bias":       "BULL",
-        "rr":         2.8,
+        "mt5":         "XAUUSD.Qraw",
+        "yf":          "GC=F",
+        "price_lo":    4000,
+        "price_hi":    7000,
+        "sessions":    [0, 20],
+        "decimals":    2,
+        "min_sl":      7.0,
+        "tier":        "GOLD ELITE",
+        "bias":        "BULL",
+        "rr":          2.8,
         "sweep_bonus": 3,
-        "wick_ratio": 1.8,
+        "wick_ratio":  1.8,
     },
     "NAS100": {
-        "mt5":        "NAS100",
-        "yf":         "^NDX",
-        "price_lo":   15000,
-        "price_hi":   30000,
-        "sessions":   [0, 21],
-        "decimals":   1,
-        "min_sl":     55.0,
-        "tier":       "NASDAQ ELITE",
-        "bias":       "BULL",
-        "rr":         2.7,
+        "mt5":         "NAS100",
+        "yf":          "^NDX",
+        "price_lo":    15000,
+        "price_hi":    30000,
+        "sessions":    [0, 21],
+        "decimals":    1,
+        "min_sl":      55.0,
+        "tier":        "NASDAQ ELITE",
+        "bias":        "BULL",
+        "rr":          2.7,
         "sweep_bonus": 2,
-        "wick_ratio": 1.6,
+        "wick_ratio":  1.6,
     },
     "DE30": {
-        "mt5":        "DE30.Qraw",
-        "yf":         "^GDAXI",
-        "price_lo":   15000,
-        "price_hi":   25000,
-        "sessions":   [0, 18],
-        "decimals":   1,
-        "min_sl":     50.0,
-        "tier":       "DE30 ELITE",
-        "bias":       "BULL",
-        "rr":         2.8,
+        "mt5":         "DE30.Qraw",
+        "yf":          "^GDAXI",
+        "price_lo":    15000,
+        "price_hi":    25000,
+        "sessions":    [0, 18],
+        "decimals":    1,
+        "min_sl":      50.0,
+        "tier":        "DE30 ELITE",
+        "bias":        "BULL",
+        "rr":          2.8,
         "sweep_bonus": 3,
-        "wick_ratio": 1.7,
+        "wick_ratio":  1.7,
     },
     "US30": {
-        "mt5":        "US30",
-        "yf":         "^DJI",
-        "price_lo":   30000,
-        "price_hi":   50000,
-        "sessions":   [0, 21],
-        "decimals":   1,
-        "min_sl":     65.0,
-        "tier":       "US30 ELITE",
-        "bias":       "BULL",
-        "rr":         2.6,
+        "mt5":         "US30",
+        "yf":          "^DJI",
+        "price_lo":    30000,
+        "price_hi":    50000,
+        "sessions":    [0, 21],
+        "decimals":    1,
+        "min_sl":      65.0,
+        "tier":        "US30 ELITE",
+        "bias":        "BULL",
+        "rr":          2.6,
         "sweep_bonus": 2,
-        "wick_ratio": 1.5,
-    },
-    "EUR/USD": {
-        "mt5":        "EURUSD",
-        "yf":         "EURUSD=X",
-        "price_lo":   0.90,
-        "price_hi":   1.30,
-        "sessions":   [0, 24],
-        "decimals":   5,
-        "min_sl":     0.0015,
-        "tier":       "FOREX ELITE",
-        "bias":       "BULL",
-        "rr":         2.4,
-        "sweep_bonus": 2,
-        "wick_ratio": 1.6,
-    },
-    "GBP/USD": {
-        "mt5":        "GBPUSD",
-        "yf":         "GBPUSD=X",
-        "price_lo":   1.05,
-        "price_hi":   1.50,
-        "sessions":   [0, 24],
-        "decimals":   5,
-        "min_sl":     0.0020,
-        "tier":       "FOREX ELITE",
-        "bias":       "BULL",
-        "rr":         2.5,
-        "sweep_bonus": 3,
-        "wick_ratio": 1.7,
-    },
-    "USD/JPY": {
-        "mt5":        "USDJPY",
-        "yf":         "USDJPY=X",
-        "price_lo":   100,
-        "price_hi":   180,
-        "sessions":   [0, 24],
-        "decimals":   3,
-        "min_sl":     0.25,
-        "tier":       "FOREX ELITE",
-        "bias":       "BULL",
-        "rr":         2.3,
-        "sweep_bonus": 2,
-        "wick_ratio": 1.5,
-    },
-    "SPX500": {
-        "mt5":        "SPX500",
-        "yf":         "^GSPC",
-        "price_lo":   3000,
-        "price_hi":   8000,
-        "sessions":   [0, 21],
-        "decimals":   1,
-        "min_sl":     35.0,
-        "tier":       "SPX ELITE",
-        "bias":       "BULL",
-        "rr":         2.7,
-        "sweep_bonus": 2,
-        "wick_ratio": 1.7,
-    },
-    "XAG/USD": {
-        "mt5":        "XAGUSD",
-        "yf":         "SI=F",
-        "price_lo":   15,
-        "price_hi":   60,
-        "sessions":   [0, 21],
-        "decimals":   3,
-        "min_sl":     0.30,
-        "tier":       "SILVER ELITE",
-        "bias":       "BULL",
-        "rr":         2.8,
-        "sweep_bonus": 3,
-        "wick_ratio": 1.8,
+        "wick_ratio":  1.5,
     },
 }
 
-SYMBOLS = [
-    "XAU/USD",
-    "NAS100",
-    "DE30",
-    "US30",
-    "EUR/USD",
-    "GBP/USD",
-    "USD/JPY",
-    "SPX500",
-    "XAG/USD",
-]
+SYMBOLS = ["XAU/USD", "NAS100", "DE30", "US30"]
 
 # ============================================================
 # CORE SETTINGS
@@ -198,21 +135,20 @@ MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
 MAIN_LOOP_DELAY        = 4
 
-STDV_PERIOD           = 20
-STDV_THRESHOLD_MULT   = 1.15
-AOX_FAST              = 5
-AOX_SLOW              = 34
+STDV_PERIOD         = 20
+STDV_THRESHOLD_MULT = 1.15
+AOX_FAST            = 5
+AOX_SLOW            = 34
 
-ENABLE_WIZARD_AI       = True
-WIZARD_MIN_SCORE       = 20
-WIZARD_VOLUME_MULT     = 1.5
-WIZARD_ADX_THRESHOLD   = 25
+ENABLE_WIZARD_AI     = True
+WIZARD_MIN_SCORE     = 20
+WIZARD_VOLUME_MULT   = 1.5
+WIZARD_ADX_THRESHOLD = 25
 
-FOREX_MIN_ADX = {
-    "EUR/USD": 28,
-    "GBP/USD": 30,
-    "USD/JPY": 27,
-}
+CORRELATION_BLOCK    = True
+MAX_OPEN_CORRELATED  = 1
+VOLATILITY_KILL      = True
+FALSE_BREAK_FILTER   = True
 
 # ============================================================
 # EXECUTION SLIPPAGE BUFFER
@@ -222,18 +158,13 @@ EXECUTION_BUFFER = {
     "NAS100":  2.5,
     "DE30":    3.0,
     "US30":    2.5,
-    "EUR/USD": 0.00015,
-    "GBP/USD": 0.00020,
-    "USD/JPY": 0.020,
-    "SPX500":  1.5,
-    "XAG/USD": 0.03,
 }
 
 # ============================================================
-# SCORE THRESHOLDS BY REGIME
+# SCORE THRESHOLDS
 # ============================================================
-RANGE_MIN_SCORE    = 7
-TREND_MIN_SCORE    = 8
+RANGE_MIN_SCORE = 7
+TREND_MIN_SCORE = 8
 
 # ============================================================
 # MARKET STRUCTURE
@@ -267,72 +198,24 @@ MARKET_STRUCTURE = {
         "premium_discount_lookback": 28,
         "wick_ratio":                1.8,
     },
-    "EUR/USD": {
-        "sweep_lookback":            7,
-        "zone_lookback":             14,
-        "displacement_mult":         1.20,
-        "premium_discount_lookback": 28,
-        "wick_ratio":                1.7,
-    },
-    "GBP/USD": {
-        "sweep_lookback":            8,
-        "zone_lookback":             16,
-        "displacement_mult":         1.25,
-        "premium_discount_lookback": 30,
-        "wick_ratio":                1.8,
-    },
-    "USD/JPY": {
-        "sweep_lookback":            7,
-        "zone_lookback":             14,
-        "displacement_mult":         1.15,
-        "premium_discount_lookback": 28,
-        "wick_ratio":                1.6,
-    },
-    "SPX500": {
-        "sweep_lookback":            8,
-        "zone_lookback":             14,
-        "displacement_mult":         1.30,
-        "premium_discount_lookback": 28,
-        "wick_ratio":                1.8,
-    },
-    "XAG/USD": {
-        "sweep_lookback":            7,
-        "zone_lookback":             14,
-        "displacement_mult":         1.25,
-        "premium_discount_lookback": 28,
-        "wick_ratio":                1.9,
-    },
 }
 
-# ============================================================
-# MARKET-SPECIFIC STRUCTURE SCORE FILTERS
-# ============================================================
 MARKET_MIN_STRUCTURE_SCORE = {
     "XAU/USD": 7,
     "NAS100":  8,
     "DE30":    7,
     "US30":    8,
-    "EUR/USD": 7,
-    "GBP/USD": 8,
-    "USD/JPY": 7,
-    "SPX500":  8,
-    "XAG/USD": 8,
 }
 
 # ============================================================
-# MARKET-SPECIFIC SESSION CURATION
+# SESSION CURATION
 # ============================================================
-MARKET_ALLOWED_SESSIONS = {
-    "XAU/USD": ["Asian Precision", "London", "NY Killzone", "NY+London"],
-    "XAG/USD": ["Asian Precision", "London", "NY Killzone"],
-    "NAS100":  ["London", "NY Killzone", "NY+London"],
-    "SPX500":  ["London", "NY Killzone", "NY+London"],
-    "DE30":    ["London", "NY+London"],
-    "US30":    ["NY Killzone", "NY+London"],
-    "EUR/USD": ["London", "NY+London"],
-    "GBP/USD": ["London", "NY+London"],
-    "USD/JPY": ["Asian Precision", "London"],
-}
+ALLOWED_SESSIONS = [
+    "Asian Precision",
+    "London",
+    "NY+London",
+    "NY Killzone",
+]
 
 # ============================================================
 # ATR MULTIPLIERS
@@ -342,46 +225,22 @@ ATR_MARKET_MULTIPLIER = {
     "NAS100":  1.03,
     "DE30":    1.08,
     "US30":    1.04,
-    "EUR/USD": 1.00,
-    "GBP/USD": 1.02,
-    "USD/JPY": 1.01,
-    "SPX500":  1.03,
-    "XAG/USD": 1.05,
 }
 
-# ============================================================
-# DOLLAR PER POINT
-# ============================================================
 DOLLAR_PER_POINT = {
     "XAU/USD": 100,
     "NAS100":  10,
     "DE30":    10,
     "US30":    10,
-    "EUR/USD": 100000,
-    "GBP/USD": 100000,
-    "USD/JPY": 1000,
-    "SPX500":  10,
-    "XAG/USD": 5000,
 }
 
-# ============================================================
-# MAX SPREAD
-# ============================================================
 MAX_SPREAD = {
     "XAU/USD": 1.20,
     "NAS100":  4.0,
     "DE30":    5.0,
     "US30":    6.0,
-    "EUR/USD": 0.00025,
-    "GBP/USD": 0.00035,
-    "USD/JPY": 0.030,
-    "SPX500":  3.0,
-    "XAG/USD": 0.08,
 }
 
-# ============================================================
-# REGIME TO TIMEFRAME MAP
-# ============================================================
 REGIME_TIMEFRAME = {
     "SCALP":    "1M / 5M",
     "RANGE":    "15M / 30M",
@@ -389,36 +248,19 @@ REGIME_TIMEFRAME = {
     "BREAKOUT": "15M / 1H",
 }
 
-# ============================================================
-# DAILY SIGNAL CAPS
-# ============================================================
 MAX_SIGNALS_PER_DAY = {
     "XAU/USD": 4,
-    "XAG/USD": 3,
     "NAS100":  3,
-    "SPX500":  3,
     "DE30":    2,
     "US30":    2,
-    "EUR/USD": 3,
-    "GBP/USD": 3,
-    "USD/JPY": 3,
 }
-
-# ============================================================
-# CORRELATION GROUPS
-# ============================================================
-CORRELATED_GROUPS = [
-    ["NAS100", "SPX500", "US30"],
-    ["EUR/USD", "GBP/USD"],
-    ["XAU/USD", "XAG/USD"],
-]
 
 # ============================================================
 # STATE
 # ============================================================
-daily_pnl              = 0
-consecutive_losses     = 0
-last_reset_day         = datetime.now(timezone.utc).day
+daily_pnl           = 0
+consecutive_losses  = 0
+last_reset_day      = datetime.now(timezone.utc).day
 
 _signal_sent           = {s: 0 for s in SYMBOLS}
 _htf_cache             = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
@@ -427,11 +269,7 @@ _last_signal_time      = {}
 _signal_counter        = {s: {"session": None, "count": 0} for s in SYMBOLS}
 _daily_signal_count    = {s: 0 for s in SYMBOLS}
 
-# ============================================================
-# STARTUP FILE VALIDATION
-# ============================================================
-required_files = ["signals_log.csv", "signals_backup.csv"]
-for _file in required_files:
+for _file in ["signals_log.csv", "signals_backup.csv"]:
     if not os.path.exists(_file):
         with open(_file, "a", encoding="utf-8"):
             pass
@@ -444,15 +282,13 @@ def reset_daily():
     global _daily_signal_count, _htf_cache
 
     current_day = datetime.now(timezone.utc).day
-
     if current_day != last_reset_day:
         daily_pnl           = 0
         consecutive_losses  = 0
         last_reset_day      = current_day
         _daily_signal_count = {s: 0 for s in SYMBOLS}
         _htf_cache          = {
-            s: {"trend": "NEUTRAL", "ts": 0}
-            for s in SYMBOLS
+            s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS
         }
         log.info("Daily reset complete")
 
@@ -468,15 +304,11 @@ def sync_real_pnl():
     return daily_pnl
 
 # ============================================================
-# WATCHDOG — UTF-8 PROTECTED
+# WATCHDOG
 # ============================================================
 def watchdog():
     try:
-        with open(
-            "heartbeat.txt",
-            "w",
-            encoding="utf-8"
-        ) as f:
+        with open("heartbeat.txt", "w", encoding="utf-8") as f:
             f.write(
                 f"{datetime.now(timezone.utc).isoformat()} | "
                 f"{SYSTEM_VERSION} | ACTIVE"
@@ -485,32 +317,26 @@ def watchdog():
         log.error(f"Watchdog failure: {e}")
 
 # ============================================================
-# LOG ROTATION — HARDENED
+# LOG ROTATION
 # ============================================================
 def rotate_log():
     file_path = "signals_log.csv"
     try:
         if os.path.isfile(file_path):
             if os.path.getsize(file_path) > 5_000_000:
-                os.rename(
-                    file_path,
-                    f"signals_log_{int(time.time())}.csv"
-                )
+                os.rename(file_path, f"signals_log_{int(time.time())}.csv")
     except Exception as e:
         log.error(f"Log rotation failure: {e}")
 
 # ============================================================
-# SIGNAL LOGGER — THREAD SAFE + UTF-8
+# SIGNAL LOGGER
 # ============================================================
 def log_signal(symbol, direction, score, rr, entry, sl, tp,
                session, regime, timeframe, signal_type):
     with log_lock:
         file_exists = os.path.isfile("signals_log.csv")
         with open(
-            "signals_log.csv",
-            "a",
-            newline="",
-            encoding="utf-8"
+            "signals_log.csv", "a", newline="", encoding="utf-8"
         ) as f:
             writer = csv.writer(f)
             if not file_exists:
@@ -525,27 +351,21 @@ def log_signal(symbol, direction, score, rr, entry, sl, tp,
                 symbol, direction, score, rr,
                 entry, sl, tp, session, regime, timeframe, signal_type
             ])
-
         try:
             with open(
-                "signals_backup.csv",
-                "a",
-                newline="",
-                encoding="utf-8"
+                "signals_backup.csv", "a", newline="", encoding="utf-8"
             ) as backup:
-                backup_writer = csv.writer(backup)
-                backup_writer.writerow([
+                csv.writer(backup).writerow([
                     SYSTEM_VERSION,
                     datetime.now(timezone.utc).isoformat(),
                     symbol, direction, score, rr,
-                    entry, sl, tp, session,
-                    regime, timeframe, signal_type
+                    entry, sl, tp, session, regime, timeframe, signal_type
                 ])
         except Exception as e:
             log.error(f"Backup log failed: {e}")
 
 # ============================================================
-# TELEGRAM — SESSION REUSE
+# TELEGRAM
 # ============================================================
 def send_telegram(msg):
     for attempt in range(3):
@@ -560,10 +380,7 @@ def send_telegram(msg):
                 timeout=8
             )
             if r.status_code != 200:
-                log.error(
-                    f"Telegram HTTP Error {r.status_code} | "
-                    f"Response: {r.text}"
-                )
+                log.error(f"Telegram HTTP {r.status_code} | {r.text}")
                 time.sleep(2)
                 continue
             log.info(f"Telegram sent | {r.text}")
@@ -580,13 +397,10 @@ def weekend_block(symbol_key):
     now = datetime.now(timezone.utc)
     wd  = now.weekday()
     hr  = now.hour
-
     if wd == 5:
         return True
-
     if wd == 6 and hr < 21:
         return True
-
     return False
 
 def daily_loss_lock():
@@ -602,109 +416,7 @@ def loss_streak_lock():
     return False
 
 # ============================================================
-# DUPLICATE SIGNAL FILTER — THREAD SAFE
-# ============================================================
-def duplicate_signal(symbol_key, direction):
-    now = time.time()
-
-    duplicate_windows = {
-        "XAU/USD": 5400,
-        "NAS100":  7200,
-        "DE30":    14400,
-        "US30":    7200,
-        "EUR/USD": 5400,
-        "GBP/USD": 5400,
-        "USD/JPY": 5400,
-        "SPX500":  7200,
-        "XAG/USD": 5400,
-    }
-
-    cooldown = duplicate_windows.get(symbol_key, 5400)
-
-    with signal_lock:
-        last_dir  = _last_signal_direction.get(symbol_key)
-        last_time = _last_signal_time.get(symbol_key, 0)
-
-        if last_dir == direction and now - last_time < cooldown:
-            remaining = int(cooldown - (now - last_time))
-            log.info(
-                f"Duplicate signal blocked for {symbol_key} "
-                f"({remaining}s remaining)"
-            )
-            return True
-
-        _last_signal_direction[symbol_key] = direction
-        _last_signal_time[symbol_key]      = now
-
-    return False
-
-# ============================================================
-# CORRELATION BLOCKER
-# ============================================================
-def correlated_signal_block(symbol_key):
-    now = time.time()
-    for group in CORRELATED_GROUPS:
-        if symbol_key in group:
-            for other in group:
-                if other == symbol_key:
-                    continue
-                if now - _signal_sent.get(other, 0) < 1800:
-                    log.info(
-                        f"REJECTED {symbol_key} correlation blocker ({other})"
-                    )
-                    return True
-    return False
-
-def economic_news_block():
-    return False
-
-# ============================================================
-# SYMBOL-SPECIFIC SCAN DELAY
-# ============================================================
-def get_scan_delay(symbol_key):
-    delays = {
-        "XAU/USD": 3,
-        "NAS100":  5,
-        "DE30":    5,
-        "US30":    5,
-        "EUR/USD": 3,
-        "GBP/USD": 3,
-        "USD/JPY": 3,
-        "SPX500":  5,
-        "XAG/USD": 3,
-    }
-    return delays.get(symbol_key, 5)
-
-# ============================================================
-# SESSION FILTER
-# ============================================================
-def in_session(symbol_key):
-    h = datetime.now(timezone.utc).hour
-    s, e = MARKETS[symbol_key]["sessions"]
-
-    if not (s <= h < e):
-        return False, "Closed"
-
-    if symbol_key in ["EUR/USD", "GBP/USD", "USD/JPY"]:
-        if 13 <= h < 15:
-            return False, "Closed"
-
-    if 1 <= h < 6:
-        return True, "Asian Precision"
-
-    if 8 <= h < 11:
-        return True, "London"
-
-    if 13 <= h < 15:
-        return True, "NY Killzone"
-
-    if 14 <= h < 16:
-        return True, "NY+London"
-
-    return False, "Closed"
-
-# ============================================================
-# DATA FETCHING — RATE LIMIT PROTECTED
+# DATA FETCHING
 # ============================================================
 def fetch_yf(ticker, period="15d", interval="5m"):
     for attempt in range(3):
@@ -718,43 +430,33 @@ def fetch_yf(ticker, period="15d", interval="5m"):
                 auto_adjust=True,
                 threads=False
             )
-
             if raw.empty:
                 log.error(f"{ticker} returned empty data")
                 time.sleep(1)
                 continue
-
             if isinstance(raw.columns, pd.MultiIndex):
                 raw.columns = raw.columns.get_level_values(0)
-
             raw.columns = [str(c).lower() for c in raw.columns]
-
             return raw[
                 ["open", "high", "low", "close", "volume"]
             ].reset_index(drop=True)
-
         except Exception as e:
-            log.error(
-                f"YFinance fetch failed for {ticker} | "
-                f"Attempt {attempt + 1} | {e}"
-            )
+            log.error(f"YFinance fetch failed {ticker} | {attempt+1} | {e}")
             time.sleep(1)
+    return None
 
+def fetch_market_data(symbol_key):
+    yf_sym = MARKETS[symbol_key]["yf"]
+    if yf_sym:
+        df = fetch_yf(yf_sym)
+        if df is not None and len(df) > 100:
+            return df
     return None
 
 def get_entry_data(symbol_key):
-    yf_sym = MARKETS[symbol_key]["yf"]
-
-    if yf_sym:
-        df = fetch_yf(yf_sym)
-
-        if df is None:
-            log.error(f"{symbol_key} data fetch failed")
-            return None, None
-
-        if len(df) > 100:
-            return df, "yf"
-
+    df = fetch_market_data(symbol_key)
+    if df is not None:
+        return df, "yf"
     return None, None
 
 def get_spread(df):
@@ -765,29 +467,6 @@ def get_spread(df):
         recent["high"].astype(float) - recent["low"].astype(float)
     ).mean()
     return avg_range * 0.18
-
-# ============================================================
-# VOLATILITY KILL SWITCH
-# ============================================================
-def volatility_kill_switch(df, symbol_key):
-    atr   = float(df.iloc[-1]["atr"])
-    close = float(df.iloc[-1]["close"])
-
-    volatility_ratio = atr / close
-
-    thresholds = {
-        "XAU/USD": 0.008,
-        "XAG/USD": 0.010,
-        "NAS100":  0.006,
-        "SPX500":  0.005,
-        "DE30":    0.006,
-        "US30":    0.005,
-        "EUR/USD": 0.0025,
-        "GBP/USD": 0.003,
-        "USD/JPY": 0.003,
-    }
-
-    return volatility_ratio > thresholds[symbol_key]
 
 # ============================================================
 # INDICATORS
@@ -812,6 +491,14 @@ def add_ind(df):
     df["aox_fast"] = ta.trend.EMAIndicator(cl, AOX_FAST).ema_indicator()
     df["aox_slow"] = ta.trend.EMAIndicator(cl, AOX_SLOW).ema_indicator()
     df["aox"]      = df["aox_fast"] - df["aox_slow"]
+
+    # WaveTrend oscillator
+    hlc3           = (hi + lo + cl) / 3
+    esa            = hlc3.ewm(span=10, adjust=False).mean()
+    d              = (hlc3 - esa).abs().ewm(span=10, adjust=False).mean()
+    ci             = (hlc3 - esa) / (0.015 * d)
+    df["wt1"]      = ci.ewm(span=21, adjust=False).mean()
+    df["wt2"]      = df["wt1"].rolling(4).mean()
 
     df.replace([float("inf"), float("-inf")], pd.NA, inplace=True)
     df.dropna(inplace=True)
@@ -844,6 +531,131 @@ def get_trend(symbol_key):
     return trend
 
 # ============================================================
+# MULTI-TIMEFRAME TREND (MTF)
+# ============================================================
+def mtf_bullish(symbol_key, df):
+    """
+    True when price is above EMA50, EMA200, and EMA9 > EMA21.
+    Represents short, medium, and long term all aligned bullish.
+    """
+    if df is None or len(df) < 200:
+        return False
+    last = df.iloc[-1]
+    return (
+        float(last["ema9"])   > float(last["ema21"])
+        and float(last["ema21"]) > float(last["ema50"])
+        and float(last["close"]) > float(last["ema200"])
+    )
+
+def mtf_bearish(symbol_key, df):
+    if df is None or len(df) < 200:
+        return False
+    last = df.iloc[-1]
+    return (
+        float(last["ema9"])   < float(last["ema21"])
+        and float(last["ema21"]) < float(last["ema50"])
+        and float(last["close"]) < float(last["ema200"])
+    )
+
+# ============================================================
+# WAVETREND CONFIRMATION
+# ============================================================
+def wavetrend_confirmation(df, direction):
+    """
+    WaveTrend crossover confirmation:
+    BUY  — wt1 crosses above wt2 from below -30 (oversold)
+    SELL — wt1 crosses below wt2 from above +30 (overbought)
+    """
+    if len(df) < 5:
+        return False
+    wt1_now  = float(df.iloc[-1]["wt1"])
+    wt2_now  = float(df.iloc[-1]["wt2"])
+    wt1_prev = float(df.iloc[-2]["wt1"])
+    wt2_prev = float(df.iloc[-2]["wt2"])
+
+    if direction == "BUY":
+        return (
+            wt1_prev < wt2_prev
+            and wt1_now > wt2_now
+            and wt1_now < 20
+        )
+    elif direction == "SELL":
+        return (
+            wt1_prev > wt2_prev
+            and wt1_now < wt2_now
+            and wt1_now > -20
+        )
+    return False
+
+# ============================================================
+# WEEKLY / DAILY / H12 / H4 TREND APPROXIMATIONS
+# ============================================================
+def weekly_trend(df, direction):
+    """Weekly: price vs 250-bar rolling mean (approx 1 week on 5m)."""
+    if df is None or len(df) < 260:
+        return False
+    weekly_ma = df["close"].rolling(250).mean().iloc[-1]
+    price     = float(df.iloc[-1]["close"])
+    if pd.isna(weekly_ma):
+        return False
+    if direction == "BUY":
+        return price > weekly_ma
+    return price < weekly_ma
+
+def daily_trend(df, direction):
+    """Daily: price vs 200-bar EMA."""
+    if df is None or len(df) < 210:
+        return False
+    last = df.iloc[-1]
+    price = float(last["close"])
+    ema200 = float(last["ema200"])
+    if direction == "BUY":
+        return price > ema200
+    return price < ema200
+
+def h12_trend(df, direction):
+    """H12 approx: price vs 144-bar rolling mean."""
+    if df is None or len(df) < 150:
+        return False
+    h12_ma = df["close"].rolling(144).mean().iloc[-1]
+    price  = float(df.iloc[-1]["close"])
+    if pd.isna(h12_ma):
+        return False
+    if direction == "BUY":
+        return price > h12_ma
+    return price < h12_ma
+
+def h4_trend(df, direction):
+    """H4 approx: price vs 50-bar EMA."""
+    if df is None or len(df) < 55:
+        return False
+    last = df.iloc[-1]
+    price = float(last["close"])
+    ema50 = float(last["ema50"])
+    if direction == "BUY":
+        return price > ema50
+    return price < ema50
+
+# ============================================================
+# QUANTUM MACRO FILTER
+# ============================================================
+def quantum_macro_filter(df, direction):
+    """
+    All 4 timeframe layers must align.
+    Minimum 3/4 required for pass (prevents false rejections).
+    """
+    if df is None:
+        return False
+
+    score = 0
+    if weekly_trend(df, direction): score += 3
+    if daily_trend(df, direction):  score += 3
+    if h12_trend(df, direction):    score += 2
+    if h4_trend(df, direction):     score += 2
+
+    return score >= 8
+
+# ============================================================
 # PATTERN DETECTION
 # ============================================================
 def fair_value_gap(df):
@@ -867,9 +679,6 @@ def detect_choch(df):
         highs[-2] > highs[-3] and close < lows[-2]
     )
 
-# ============================================================
-# INSTITUTIONAL CANDLE STRUCTURE ENGINE
-# ============================================================
 def detect_liquidity_sweep(df, symbol_key):
     lookback  = MARKET_STRUCTURE[symbol_key]["sweep_lookback"]
     if len(df) < lookback:
@@ -878,15 +687,10 @@ def detect_liquidity_sweep(df, symbol_key):
     prev_high = float(recent["high"].iloc[:-1].max())
     prev_low  = float(recent["low"].iloc[:-1].min())
     last      = recent.iloc[-1]
-    bullish_sweep = (
-        float(last["low"]) < prev_low
-        and float(last["close"]) > prev_low
+    return (
+        float(last["low"])  < prev_low  and float(last["close"]) > prev_low,
+        float(last["high"]) > prev_high and float(last["close"]) < prev_high
     )
-    bearish_sweep = (
-        float(last["high"]) > prev_high
-        and float(last["close"]) < prev_high
-    )
-    return bullish_sweep, bearish_sweep
 
 def detect_zone_retest(df, symbol_key, direction):
     lookback = MARKET_STRUCTURE[symbol_key]["zone_lookback"]
@@ -895,21 +699,17 @@ def detect_zone_retest(df, symbol_key, direction):
     recent  = df.tail(lookback)
     current = df.iloc[-1]
     if direction == "BUY":
-        demand_zone = float(recent["low"].min())
-        return float(current["low"]) <= demand_zone * 1.002
+        return float(current["low"]) <= float(recent["low"].min()) * 1.002
     if direction == "SELL":
-        supply_zone = float(recent["high"].max())
-        return float(current["high"]) >= supply_zone * 0.998
+        return float(current["high"]) >= float(recent["high"].max()) * 0.998
     return False
 
 def detect_displacement(df, symbol_key):
     if len(df) < 2:
         return False
-    mult   = MARKET_STRUCTURE[symbol_key]["displacement_mult"]
     candle = df.iloc[-1]
     body   = abs(float(candle["close"]) - float(candle["open"]))
-    atr    = float(candle["atr"])
-    return body > atr * mult
+    return body > float(candle["atr"]) * MARKET_STRUCTURE[symbol_key]["displacement_mult"]
 
 def detect_wick_rejection(df, atr, symbol_key):
     if len(df) < 2:
@@ -922,123 +722,268 @@ def detect_wick_rejection(df, atr, symbol_key):
     body        = abs(close_price - open_price)
     if body < atr * 0.05:
         return False, False
-    upper_wick     = high_price - max(open_price, close_price)
-    lower_wick     = min(open_price, close_price) - low_price
-    wick_ratio     = MARKETS[symbol_key]["wick_ratio"]
-    bullish_reject = lower_wick > body * wick_ratio
-    bearish_reject = upper_wick > body * wick_ratio
-    return bullish_reject, bearish_reject
+    upper_wick = high_price - max(open_price, close_price)
+    lower_wick = min(open_price, close_price) - low_price
+    wick_ratio = MARKETS[symbol_key]["wick_ratio"]
+    return lower_wick > body * wick_ratio, upper_wick > body * wick_ratio
 
 def premium_discount(df, symbol_key):
     lookback = MARKET_STRUCTURE[symbol_key]["premium_discount_lookback"]
     if len(df) < lookback:
         return {"discount": False, "premium": False}
-    recent      = df.tail(lookback)
-    recent_high = float(recent["high"].max())
-    recent_low  = float(recent["low"].min())
-    midpoint    = (recent_high + recent_low) / 2
-    price       = float(df.iloc[-1]["close"])
+    recent   = df.tail(lookback)
+    midpoint = (float(recent["high"].max()) + float(recent["low"].min())) / 2
+    price    = float(df.iloc[-1]["close"])
     return {"discount": price < midpoint, "premium": price > midpoint}
 
+# ============================================================
+# BREAK OF STRUCTURE
+# ============================================================
+def break_of_structure(df, direction):
+    """
+    BUY  BOS: close breaks above prior swing high with momentum.
+    SELL BOS: close breaks below prior swing low with momentum.
+    """
+    if len(df) < 10:
+        return False
+    atr   = float(df.iloc[-1]["atr"])
+    close = float(df.iloc[-1]["close"])
+    if direction == "BUY":
+        swing_high = float(df["high"].iloc[-10:-1].max())
+        return close > swing_high + atr * 0.10
+    if direction == "SELL":
+        swing_low = float(df["low"].iloc[-10:-1].min())
+        return close < swing_low - atr * 0.10
+    return False
+
+# ============================================================
+# INSTITUTIONAL VOLUME
+# ============================================================
+def institutional_volume(df):
+    """Volume is at least 1.8x the 20-bar average — institutional activity."""
+    if len(df) < 21:
+        return False
+    last  = df.iloc[-1]
+    vol   = float(last["volume"])
+    volma = float(last["volma"]) if not pd.isna(last["volma"]) else 0
+    return volma > 0 and vol > volma * 1.8
+
+# ============================================================
+# STRONG CANDLE
+# ============================================================
+def strong_candle(df, direction):
+    """
+    Body is at least 60% of total candle range
+    and candle closes in the top/bottom 30% of its range.
+    """
+    if len(df) < 2:
+        return False
+    candle     = df.iloc[-1]
+    open_p     = float(candle["open"])
+    close_p    = float(candle["close"])
+    high_p     = float(candle["high"])
+    low_p      = float(candle["low"])
+    body       = abs(close_p - open_p)
+    total_range = high_p - low_p
+    if total_range == 0:
+        return False
+    body_ratio = body / total_range
+    if body_ratio < 0.60:
+        return False
+    if direction == "BUY":
+        return close_p > (low_p + total_range * 0.70)
+    if direction == "SELL":
+        return close_p < (low_p + total_range * 0.30)
+    return False
+
+# ============================================================
+# INSTITUTIONAL STRUCTURE SCORE
+# ============================================================
 def institutional_structure_score(df, symbol_key):
     bull_sweep,  bear_sweep  = detect_liquidity_sweep(df, symbol_key)
-    bull_wick,   bear_wick   = detect_wick_rejection(df, float(df.iloc[-1]["atr"]), symbol_key)
-    displacement              = detect_displacement(df, symbol_key)
-    pd_zone                   = premium_discount(df, symbol_key)
+    bull_wick,   bear_wick   = detect_wick_rejection(
+        df, float(df.iloc[-1]["atr"]), symbol_key
+    )
+    displacement = detect_displacement(df, symbol_key)
+    pd_zone      = premium_discount(df, symbol_key)
 
-    buy_score       = 0
-    sell_score      = 0
-    buy_conditions  = {}
-    sell_conditions = {}
+    buy_score  = 0
+    sell_score = 0
+    buy_cond   = {}
+    sell_cond  = {}
 
     if bull_sweep:
-        buy_score += 2
-        buy_conditions["SWEEP"] = True
+        buy_score += 2; buy_cond["SWEEP"] = True
     if bull_wick:
-        buy_score += 2
-        buy_conditions["WICK"] = True
+        buy_score += 2; buy_cond["WICK"] = True
     if detect_zone_retest(df, symbol_key, "BUY"):
-        buy_score += 2
-        buy_conditions["ZONE"] = True
+        buy_score += 2; buy_cond["ZONE"] = True
     if displacement:
-        buy_score += 2
-        buy_conditions["DISPLACEMENT"] = True
+        buy_score += 2; buy_cond["DISPLACEMENT"] = True
     if pd_zone["discount"]:
-        buy_score += 1
-        buy_conditions["DISCOUNT"] = True
+        buy_score += 1; buy_cond["DISCOUNT"] = True
 
     if bear_sweep:
-        sell_score += 2
-        sell_conditions["SWEEP"] = True
+        sell_score += 2; sell_cond["SWEEP"] = True
     if bear_wick:
-        sell_score += 2
-        sell_conditions["WICK"] = True
+        sell_score += 2; sell_cond["WICK"] = True
     if detect_zone_retest(df, symbol_key, "SELL"):
-        sell_score += 2
-        sell_conditions["ZONE"] = True
+        sell_score += 2; sell_cond["ZONE"] = True
     if displacement:
-        sell_score += 2
-        sell_conditions["DISPLACEMENT"] = True
+        sell_score += 2; sell_cond["DISPLACEMENT"] = True
     if pd_zone["premium"]:
-        sell_score += 1
-        sell_conditions["PREMIUM"] = True
+        sell_score += 1; sell_cond["PREMIUM"] = True
 
-    if buy_score >= 8:
-        buy_score += 1
+    if buy_score  >= 8: buy_score  += 1
+    if sell_score >= 8: sell_score += 1
 
-    if sell_score >= 8:
-        sell_score += 1
+    return buy_cond, sell_cond, buy_score, sell_score
 
-    return buy_conditions, sell_conditions, buy_score, sell_score
-
-# ============================================================
-# SUPPLY / DEMAND ZONE DETECTION
-# ============================================================
 def detect_supply_demand_zones(df):
     if len(df) < 20:
         return None, None
     recent = df.tail(20)
-    supply = recent["high"].rolling(5).max().iloc[-1]
-    demand = recent["low"].rolling(5).min().iloc[-1]
-    return demand, supply
+    return (
+        recent["low"].rolling(5).min().iloc[-1],
+        recent["high"].rolling(5).max().iloc[-1],
+    )
 
-# ============================================================
-# MARKET REGIME
-# ============================================================
 def detect_market_regime(df):
     adx = float(df.iloc[-1]["adx"])
-    if adx >= 35:
-        return "BREAKOUT"
-    elif adx >= 25:
-        return "TREND"
-    else:
-        return "RANGE"
+    if adx >= 35:  return "BREAKOUT"
+    elif adx >= 25: return "TREND"
+    else:           return "RANGE"
 
-# ============================================================
-# SIGNAL COUNTER
-# ============================================================
 def get_signal_number(symbol_key, session):
     global _signal_counter
-
     if _signal_counter[symbol_key]["session"] != session:
         _signal_counter[symbol_key]["session"] = session
         _signal_counter[symbol_key]["count"]   = 1
     else:
         _signal_counter[symbol_key]["count"] += 1
-
-    signal_num = _signal_counter[symbol_key]["count"]
-
-    if signal_num == 1:
-        entry_type = "PRIMARY BREAKOUT"
-    elif signal_num == 2:
-        entry_type = "SECONDARY RETEST"
-    else:
-        entry_type = "ADVANCED CONTINUATION"
-
-    return signal_num, entry_type
+    n = _signal_counter[symbol_key]["count"]
+    entry_type = (
+        "PRIMARY BREAKOUT"       if n == 1 else
+        "SECONDARY RETEST"       if n == 2 else
+        "ADVANCED CONTINUATION"
+    )
+    return n, entry_type
 
 # ============================================================
-# BUILD SCORE
+# SESSION FILTER
+# ============================================================
+def in_session(symbol_key):
+    h = datetime.now(timezone.utc).hour
+    s, e = MARKETS[symbol_key]["sessions"]
+    if not (s <= h < e):
+        return False, "Closed"
+    if 1  <= h < 6:  return True, "Asian Precision"
+    if 8  <= h < 11: return True, "London"
+    if 13 <= h < 15: return True, "NY Killzone"
+    if 14 <= h < 16: return True, "NY+London"
+    return False, "Closed"
+
+# ============================================================
+# SPREAD / VOLATILITY CHECKS
+# ============================================================
+def spread_too_high(symbol_key, spread):
+    return spread > MAX_SPREAD[symbol_key] * 0.90
+
+def volatility_danger(df, symbol_key):
+    """
+    ATR > 1.15x its 50-bar average = dangerous volatility.
+    ATR > 2.0x its 50-bar average = extreme danger, always block.
+    """
+    if len(df) < 60:
+        return False
+    atr     = float(df.iloc[-1]["atr"])
+    atr_avg = df["atr"].rolling(50).mean().iloc[-1]
+    if pd.isna(atr_avg) or atr_avg == 0:
+        return False
+    ratio = atr / atr_avg
+    # Block extreme volatility always; moderate only during Asia
+    return ratio > 2.0
+
+def quantum_volatility_ok(df):
+    """Returns True when volatility is healthy (not too low, not extreme)."""
+    if len(df) < 60:
+        return False
+    atr     = float(df.iloc[-1]["atr"])
+    atr_avg = df["atr"].rolling(50).mean().iloc[-1]
+    if pd.isna(atr_avg) or atr_avg == 0:
+        return False
+    ratio = atr / atr_avg
+    return 0.85 <= ratio <= 1.80
+
+# ============================================================
+# FALSE BREAKOUT FILTER
+# ============================================================
+def false_breakout_filter(df, direction):
+    if len(df) < 3:
+        return False
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+    if direction == "BUY":
+        return (
+            float(last["close"]) > float(prev["high"])
+            and float(last["low"]) > float(prev["low"])
+        )
+    if direction == "SELL":
+        return (
+            float(last["close"]) < float(prev["low"])
+            and float(last["high"]) < float(prev["high"])
+        )
+    return False
+
+# ============================================================
+# CORRELATION BLOCKER
+# ============================================================
+CORRELATED_GROUPS = [["NAS100", "US30", "DE30"]]
+
+def correlated_signal_block(symbol_key):
+    if not CORRELATION_BLOCK:
+        return False
+    for group in CORRELATED_GROUPS:
+        if symbol_key in group:
+            active = sum(
+                1 for s in group
+                if time.time() - _signal_sent.get(s, 0) < 7200
+            )
+            if active >= MAX_OPEN_CORRELATED:
+                log.info(f"Correlation blocker active for {symbol_key}")
+                return True
+    return False
+
+# ============================================================
+# DUPLICATE SIGNAL FILTER
+# ============================================================
+def duplicate_signal(symbol_key, direction):
+    now = time.time()
+    duplicate_windows = {
+        "XAU/USD": 5400,
+        "NAS100":  7200,
+        "DE30":    14400,
+        "US30":    7200,
+    }
+    cooldown = duplicate_windows.get(symbol_key, 5400)
+    with signal_lock:
+        last_dir  = _last_signal_direction.get(symbol_key)
+        last_time = _last_signal_time.get(symbol_key, 0)
+        if last_dir == direction and now - last_time < cooldown:
+            remaining = int(cooldown - (now - last_time))
+            log.info(
+                f"Duplicate blocked {symbol_key} ({remaining}s remaining)"
+            )
+            return True
+        _last_signal_direction[symbol_key] = direction
+        _last_signal_time[symbol_key]      = now
+    return False
+
+def economic_news_block():
+    return False
+
+# ============================================================
+# BUILD BASE SCORE
 # ============================================================
 def build_score(df, trend, symbol_key):
     last   = df.iloc[-1]
@@ -1051,21 +996,18 @@ def build_score(df, trend, symbol_key):
     vol    = float(last["volume"])
     volma  = float(last["volma"]) if not pd.isna(last["volma"]) else 0
     atr    = float(last["atr"])
+    stdv   = float(last["stdv"])   if not pd.isna(last["stdv"])   else 0
+    aox    = float(last["aox"])    if not pd.isna(last["aox"])    else 0
 
-    stdv = float(last["stdv"]) if not pd.isna(last["stdv"]) else 0
     stdv_ma = (
         df["stdv"].rolling(STDV_PERIOD).mean().iloc[-1]
         if len(df) > STDV_PERIOD else 0
     )
-    aox = float(last["aox"]) if not pd.isna(last["aox"]) else 0
 
     bull_fvg,   bear_fvg   = fair_value_gap(df)
     bull_choch, bear_choch = detect_choch(df)
     bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
     bull_wick,  bear_wick  = detect_wick_rejection(df, atr, symbol_key)
-
-    bull_rev = False
-    bear_rev = False
 
     bullish_break = float(last["close"]) > float(df.iloc[-2]["high"]) + atr * 0.12
     bearish_break = float(last["close"]) < float(df.iloc[-2]["low"])  - atr * 0.12
@@ -1103,51 +1045,33 @@ def build_score(df, trend, symbol_key):
     buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
 
-    # Forex precision boost
-    if symbol_key in ["EUR/USD", "GBP/USD", "USD/JPY"]:
-        if buy["HTF"] and buy["EMA"]:
-            buy_score += 1
-        if sell["HTF"] and sell["EMA"]:
-            sell_score += 1
-
-    if buy["STDV"] and buy["AOX"]:
-        buy_score += 1
-    if sell["STDV"] and sell["AOX"]:
-        sell_score += 1
+    if buy["STDV"]  and buy["AOX"]:   buy_score  += 1
+    if sell["STDV"] and sell["AOX"]:  sell_score += 1
 
     sweep_bonus = MARKETS[symbol_key]["sweep_bonus"]
-    if bull_sweep and bull_wick:
-        buy_score += sweep_bonus
-    if bear_sweep and bear_wick:
-        sell_score += sweep_bonus
+    if bull_sweep and bull_wick: buy_score  += sweep_bonus
+    if bear_sweep and bear_wick: sell_score += sweep_bonus
 
     if symbol_key == "XAU/USD":
-        if bull_sweep:
-            buy_score  += 1
-        if bear_sweep:
-            sell_score += 1
-        if bull_wick:
-            buy_score  += 1
-        if bear_wick:
-            sell_score += 1
+        if bull_sweep: buy_score  += 1
+        if bear_sweep: sell_score += 1
+        if bull_wick:  buy_score  += 1
+        if bear_wick:  sell_score += 1
 
     if adx >= 35:
-        if buy_score > sell_score:
-            buy_score += 1
-        elif sell_score > buy_score:
-            sell_score += 1
+        if   buy_score > sell_score: buy_score  += 1
+        elif sell_score > buy_score: sell_score += 1
 
     return buy, sell, buy_score, sell_score
 
 # ============================================================
-# WIZARD AI CONFIRMATION
+# WIZARD AI
 # ============================================================
 def wizard_ai_confirmation(df, symbol_key, direction):
     if len(df) < 250:
         return False, 0
 
-    last = df.iloc[-1]
-
+    last   = df.iloc[-1]
     close  = float(last["close"])
     ema50  = float(last["ema50"])
     ema200 = float(last["ema200"])
@@ -1155,33 +1079,22 @@ def wizard_ai_confirmation(df, symbol_key, direction):
     adx    = float(last["adx"])
     volume = float(last["volume"])
     volma  = float(last["volma"]) if not pd.isna(last["volma"]) else 0
-    aox    = float(last["aox"]) if not pd.isna(last["aox"]) else 0
+    aox    = float(last["aox"])   if not pd.isna(last["aox"])   else 0
 
     score = 0
 
     if direction == "BUY":
-        if close > ema50:
-            score += 3
-        if ema50 > ema200:
-            score += 3
-        if rsi > 55:
-            score += 2
-        if adx > WIZARD_ADX_THRESHOLD:
-            score += 2
-        if aox > 0:
-            score += 2
-
+        if close > ema50:               score += 3
+        if ema50  > ema200:             score += 3
+        if rsi    > 55:                 score += 2
+        if adx    > WIZARD_ADX_THRESHOLD: score += 2
+        if aox    > 0:                  score += 2
     elif direction == "SELL":
-        if close < ema50:
-            score += 3
-        if ema50 < ema200:
-            score += 3
-        if rsi < 45:
-            score += 2
-        if adx > WIZARD_ADX_THRESHOLD:
-            score += 2
-        if aox < 0:
-            score += 2
+        if close < ema50:               score += 3
+        if ema50  < ema200:             score += 3
+        if rsi    < 45:                 score += 2
+        if adx    > WIZARD_ADX_THRESHOLD: score += 2
+        if aox    < 0:                  score += 2
 
     if volma > 0 and volume > volma * WIZARD_VOLUME_MULT:
         score += 3
@@ -1189,39 +1102,109 @@ def wizard_ai_confirmation(df, symbol_key, direction):
     bull_fvg, bear_fvg     = fair_value_gap(df)
     bull_choch, bear_choch = detect_choch(df)
     bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
-    bull_wick, bear_wick   = detect_wick_rejection(df, float(last["atr"]), symbol_key)
+    bull_wick, bear_wick   = detect_wick_rejection(
+        df, float(last["atr"]), symbol_key
+    )
 
     if direction == "BUY":
-        if bull_fvg:
-            score += 2
-        if bull_choch:
-            score += 2
-        if bull_sweep:
-            score += 3
-        if bull_wick:
-            score += 2
-
+        if bull_fvg:   score += 2
+        if bull_choch: score += 2
+        if bull_sweep: score += 3
+        if bull_wick:  score += 2
     elif direction == "SELL":
-        if bear_fvg:
-            score += 2
-        if bear_choch:
-            score += 2
-        if bear_sweep:
-            score += 3
-        if bear_wick:
-            score += 2
+        if bear_fvg:   score += 2
+        if bear_choch: score += 2
+        if bear_sweep: score += 3
+        if bear_wick:  score += 2
 
     pd_zone = premium_discount(df, symbol_key)
+    if direction == "BUY"  and pd_zone["discount"]: score += 2
+    if direction == "SELL" and pd_zone["premium"]:  score += 2
 
-    if direction == "BUY" and pd_zone["discount"]:
-        score += 2
+    return score >= WIZARD_MIN_SCORE, score
 
-    if direction == "SELL" and pd_zone["premium"]:
-        score += 2
+# ============================================================
+# ULTRA SNIPER SCORE
+# ============================================================
+def ultra_sniper_score(df, symbol_key, direction):
+    score = 0
+    last  = df.iloc[-1]
 
-    passed = score >= WIZARD_MIN_SCORE
+    rsi   = float(last["rsi"])
+    adx   = float(last["adx"])
+    vol   = float(last["volume"])
+    volma = float(last["volma"]) if not pd.isna(last["volma"]) else 0
 
-    return passed, score
+    bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
+    bull_fvg,   bear_fvg   = fair_value_gap(df)
+
+    # MTF alignment
+    if direction == "BUY"  and mtf_bullish(symbol_key, df):  score += 6
+    if direction == "SELL" and mtf_bearish(symbol_key, df):  score += 6
+
+    # WaveTrend
+    if wavetrend_confirmation(df, direction): score += 3
+
+    # Liquidity sweep
+    if direction == "BUY"  and bull_sweep: score += 3
+    if direction == "SELL" and bear_sweep: score += 3
+
+    # FVG
+    if direction == "BUY"  and bull_fvg: score += 2
+    if direction == "SELL" and bear_fvg: score += 2
+
+    # Break of structure
+    if break_of_structure(df, direction): score += 3
+
+    # Institutional volume
+    if institutional_volume(df): score += 2
+
+    # Strong candle
+    if strong_candle(df, direction): score += 2
+
+    # RSI and ADX
+    if direction == "BUY"  and rsi > 60: score += 3
+    if direction == "SELL" and rsi < 40: score += 3
+    if adx > 30: score += 3
+
+    # Extra volume surge
+    if volma > 0 and vol > volma * 1.7: score += 4
+
+    return score
+
+# ============================================================
+# DETERMINE BEST DIRECTION
+# ============================================================
+def determine_best_direction(buy_score, sell_score):
+    if buy_score >= sell_score:
+        return "BUY"
+    return "SELL"
+
+# ============================================================
+# TRADE QUALITY RANKING
+# ============================================================
+def trade_quality(score):
+    if   score >= 30: return "GOD-TIER"
+    elif score >= 26: return "ELITE"
+    elif score >= 22: return "HIGH-PROBABILITY"
+    return "STANDARD"
+
+# ============================================================
+# ADAPTIVE RISK
+# ============================================================
+def adaptive_risk(session):
+    if   session == "Asian Precision": return 0.5
+    elif session == "London":          return 1.0
+    elif session == "NY Killzone":     return 1.2
+    return 1.0
+
+# ============================================================
+# DYNAMIC RR
+# ============================================================
+def get_dynamic_rr(symbol_key, regime):
+    return RR_PROFILE.get(symbol_key, {}).get(
+        regime, MARKETS[symbol_key]["rr"]
+    )
 
 # ============================================================
 # LEVELS
@@ -1231,30 +1214,22 @@ def calc_levels(price, atr, symbol_key, df, direction, regime):
     decimals = MARKETS[symbol_key]["decimals"]
     recent   = df.tail(8)
 
-    if direction == "BUY":
-        swing_dist = price - float(recent["low"].min())
-    else:
-        swing_dist = float(recent["high"].max()) - price
+    swing_dist = (
+        price - float(recent["low"].min())
+        if direction == "BUY"
+        else float(recent["high"].max()) - price
+    )
 
     atr_sl  = atr * ATR_MULT * ATR_MARKET_MULTIPLIER[symbol_key]
     sl_dist = max(
         min_sl,
-        min(
-            max(atr_sl, swing_dist * 0.85),
-            swing_dist * 1.15
-        )
+        min(max(atr_sl, swing_dist * 0.85), swing_dist * 1.15)
     )
 
     if symbol_key == "DE30":
-        if regime == "BREAKOUT":
-            sl_dist *= 1.35
-        else:
-            sl_dist *= 1.25
+        sl_dist *= 1.35 if regime == "BREAKOUT" else 1.25
 
-    rr = MARKETS[symbol_key]["rr"]
-
-    if symbol_key == "DE30" and regime == "BREAKOUT":
-        rr += 0.2
+    rr = get_dynamic_rr(symbol_key, regime)
 
     if direction == "BUY":
         sl = price - sl_dist
@@ -1273,8 +1248,10 @@ def calc_levels(price, atr, symbol_key, df, direction, regime):
 # ============================================================
 # LOT SIZE
 # ============================================================
-def lot_for_risk(price, sl, symbol_key, risk=35):
-    sl_dist = abs(price - sl)
+def lot_for_risk(price, sl, symbol_key, risk_multiplier=1.0):
+    base_risk = 50
+    risk      = base_risk * risk_multiplier
+    sl_dist   = abs(price - sl)
     if sl_dist <= 0:
         return 0.01
     lot = risk / (sl_dist * DOLLAR_PER_POINT[symbol_key])
@@ -1283,13 +1260,162 @@ def lot_for_risk(price, sl, symbol_key, risk=35):
         "NAS100":  2.00,
         "DE30":    1.50,
         "US30":    1.50,
-        "EUR/USD": 3.00,
-        "GBP/USD": 3.00,
-        "USD/JPY": 2.50,
-        "SPX500":  2.00,
-        "XAG/USD": 2.00,
     }
     return round(max(0.01, min(lot, caps[symbol_key])), 3)
+
+# ============================================================
+# MASTER SIGNAL ENGINE
+# ============================================================
+def master_signal(symbol_key, df, session, trend, regime,
+                  buy, sell, buy_score, sell_score,
+                  structure_buy_score, structure_sell_score):
+
+    direction = determine_best_direction(buy_score, sell_score)
+    best      = max(buy_score, sell_score)
+
+    # Quantum macro filter
+    if not quantum_macro_filter(df, direction):
+        log.info(f"REJECTED {symbol_key} quantum macro filter")
+        return None, None, None
+
+    # Wizard AI
+    if ENABLE_WIZARD_AI:
+        wizard_pass, wizard_score = wizard_ai_confirmation(
+            df, symbol_key, direction
+        )
+        if not wizard_pass:
+            log.info(
+                f"REJECTED {symbol_key} Wizard AI failed | "
+                f"Score: {wizard_score}"
+            )
+            return None, None, None
+        best += int(wizard_score * 0.30)
+    else:
+        wizard_score = 0
+
+    # Ultra sniper
+    sniper = ultra_sniper_score(df, symbol_key, direction)
+    best  += sniper
+
+    # Session threshold
+    required = SESSION_THRESHOLDS.get(session, 20)
+    if best < required:
+        log.info(
+            f"REJECTED {symbol_key} session score too low "
+            f"({best} < {required})"
+        )
+        return None, None, None
+
+    # Quantum volatility
+    if VOLATILITY_KILL:
+        if not quantum_volatility_ok(df):
+            log.info(f"REJECTED {symbol_key} quantum volatility filter")
+            return None, None, None
+
+    # False breakout
+    if FALSE_BREAK_FILTER:
+        if not false_breakout_filter(df, direction):
+            log.info(f"REJECTED {symbol_key} false breakout filter")
+            return None, None, None
+
+    return direction, best, wizard_score
+
+# ============================================================
+# EXECUTE TRADE — sends Telegram signal
+# ============================================================
+def execute_trade(symbol_key, df, direction, best, wizard_score,
+                  sniper_score, macro_trend, session, trend,
+                  regime, buy, sell, source, asia_mode):
+
+    price = float(df.iloc[-1]["close"])
+    atr   = float(df.iloc[-1]["atr"])
+    rsi   = float(df.iloc[-1]["rsi"])
+    adx   = float(df.iloc[-1]["adx"])
+    dec   = MARKETS[symbol_key]["decimals"]
+
+    demand_zone, supply_zone = detect_supply_demand_zones(df)
+
+    if direction == "BUY":
+        price += EXECUTION_BUFFER[symbol_key]
+    else:
+        price -= EXECUTION_BUFFER[symbol_key]
+
+    sl, tp, sl_dist, rr = calc_levels(
+        price, atr, symbol_key, df, direction, regime
+    )
+
+    risk_mult = adaptive_risk(session)
+    lot       = lot_for_risk(price, sl, symbol_key, risk_mult)
+
+    quality        = trade_quality(best)
+    timeframe      = REGIME_TIMEFRAME.get(regime, "1H / 4H")
+    signal_num, entry_type = get_signal_number(symbol_key, session)
+
+    log_signal(
+        symbol_key, direction, best, rr, price, sl, tp,
+        session, regime, timeframe, "CONTINUATION"
+    )
+    sync_real_pnl()
+
+    checks    = buy if direction == "BUY" else sell
+    cond_text = "\n".join([f" {k}" for k, v in checks.items() if v])
+    if demand_zone:
+        cond_text += "\n DEMAND_ZONE"
+    if supply_zone:
+        cond_text += "\n SUPPLY_ZONE"
+
+    action_emoji = "📈" if direction == "BUY" else "📉"
+
+    # Priority badge
+    priority_tag = (
+        "🔱 *PRIORITY MARKET*\n"
+        if symbol_key in PRIORITY_MARKETS else ""
+    )
+
+    msg = (
+        f"🎯 *{SYSTEM_VERSION}* | INSTITUTIONAL EXECUTION\n"
+        f"*{MARKETS[symbol_key]['mt5']}* | "
+        f"⭐⭐⭐⭐⭐ {MARKETS[symbol_key]['tier']}\n"
+        f"{priority_tag}\n"
+        f"🔥 *Action:* {direction} {action_emoji}\n"
+        f"🎯 *Signal #:* {signal_num}\n"
+        f"📍 *Entry Type:* {entry_type}\n"
+        f"🚀 *Signal Type:* CONTINUATION\n"
+        f"⭐ *Total Score:* {best}\n"
+        f"🏆 *Trade Quality:* {quality}\n"
+        f"🌍 *Macro Trend:* {macro_trend}\n"
+        f"⚛ *Quantum Filter:* PASS\n"
+        f"🎯 *Sniper Score:* {sniper_score}\n"
+        f"🧠 *Wizard AI Score:* "
+        f"{wizard_score if ENABLE_WIZARD_AI else 'OFF'}\n"
+        f"🧠 *Regime:* {regime}\n"
+        f"⏱ *Timeframe:* {timeframe}\n"
+        f"📊 *Market Bias:* {MARKETS[symbol_key]['bias']}\n\n"
+        f"📍 *Entry:* {price:,.{dec}f}\n"
+        f"🛑 *SL:* {sl:,.{dec}f}\n"
+        f"🎯 *TP:* {tp:,.{dec}f} *(1:{rr} RR)*\n\n"
+        f"📈 *RSI:* {rsi:.1f}\n"
+        f"📉 *ADX:* {adx:.1f}\n"
+        f"🌍 *Trend:* {trend}\n"
+        f"⏰ *Session:* {session}\n"
+        f"🧠 *Mode:* "
+        f"{'ASIA ELITE PRECISION' if asia_mode else 'CORE INSTITUTIONAL'}\n"
+        f"📡 *Source:* {source}\n\n"
+        f"💵 *Lot:* {lot}\n\n"
+        f"✅ *Conditions:*\n"
+        f"{cond_text}\n\n"
+        f"🛡 *ELITE INSTITUTIONAL FILTER ACTIVE*\n"
+        f"⚡ *ULTIMATE HYBRID SUPREME*"
+    )
+
+    send_telegram(msg)
+
+    log.info(
+        f"SIGNAL SENT {symbol_key} {direction} | "
+        f"Entry: {price} | SL: {sl} | TP: {tp} | RR: {rr} | "
+        f"Quality: {quality} | Sniper: {sniper_score} | "
+        f"Signal#: {signal_num} | Regime: {regime}"
+    )
 
 # ============================================================
 # PROCESS SYMBOL
@@ -1301,12 +1427,9 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} daily cap reached")
         return
 
-    if weekend_block(symbol_key):
-        return
-    if daily_loss_lock():
-        return
-    if loss_streak_lock():
-        return
+    if weekend_block(symbol_key):  return
+    if daily_loss_lock():          return
+    if loss_streak_lock():         return
 
     watchdog()
     rotate_log()
@@ -1315,12 +1438,11 @@ def process_symbol(symbol_key):
     if not ok:
         return
 
-    if session not in MARKET_ALLOWED_SESSIONS[symbol_key]:
-        log.info(f"REJECTED {symbol_key} outside curated session ({session})")
+    if session not in ALLOWED_SESSIONS:
+        log.info(f"REJECTED {symbol_key} outside session ({session})")
         return
 
     if economic_news_block():
-        log.info(f"BLOCKED {symbol_key} news window")
         return
 
     df, source = get_entry_data(symbol_key)
@@ -1328,183 +1450,130 @@ def process_symbol(symbol_key):
         return
 
     spread = get_spread(df)
-    if spread > MAX_SPREAD[symbol_key] * 0.90:
+    if spread_too_high(symbol_key, spread):
         log.info(f"REJECTED {symbol_key} spread {spread:.4f}")
         return
 
     df = add_ind(df)
-
     if df is None or len(df) < 50:
-        log.info(f"REJECTED {symbol_key} insufficient cleaned data")
+        log.info(f"REJECTED {symbol_key} insufficient data after indicators")
         return
 
-    if volatility_kill_switch(df, symbol_key):
-        log.info(f"REJECTED {symbol_key} volatility kill switch")
+    if volatility_danger(df, symbol_key):
+        log.info(f"REJECTED {symbol_key} extreme volatility danger")
         return
 
     price = float(df.iloc[-1]["close"])
     atr   = float(df.iloc[-1]["atr"])
 
     if price <= 0:
-        log.info(f"REJECTED {symbol_key} invalid price")
         return
 
-    demand_zone, supply_zone = detect_supply_demand_zones(df)
-
-    planned_entry = float(df.iloc[-2]["close"])
-
-    if symbol_key == "XAU/USD":
-        max_entry_drift = atr * 0.25
-    elif symbol_key == "DE30":
-        max_entry_drift = atr * 0.30
-    else:
-        max_entry_drift = atr * 0.35
-
-    if not (MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]):
+    if not (MARKETS[symbol_key]["price_lo"] <= price
+            <= MARKETS[symbol_key]["price_hi"]):
         log.info(f"REJECTED {symbol_key} price out of range")
         return
 
     trend  = get_trend(symbol_key)
     regime = detect_market_regime(df)
 
+    # Macro trend for Telegram display
+    macro_trend = (
+        "BULL" if weekly_trend(df, "BUY") and daily_trend(df, "BUY")
+        else "BEAR" if weekly_trend(df, "SELL") and daily_trend(df, "SELL")
+        else "NEUTRAL"
+    )
+
     asia_mode = session == "Asian Precision"
 
     buy, sell, buy_score, sell_score = build_score(df, trend, symbol_key)
 
-    structure_buy, structure_sell, structure_buy_score, structure_sell_score = (
+    struct_buy, struct_sell, struct_buy_score, struct_sell_score = (
         institutional_structure_score(df, symbol_key)
     )
 
-    buy.update(structure_buy)
-    sell.update(structure_sell)
+    buy.update(struct_buy)
+    sell.update(struct_sell)
+    buy_score  += struct_buy_score
+    sell_score += struct_sell_score
 
-    buy_score  += structure_buy_score
-    sell_score += structure_sell_score
-
-    rsi = float(df.iloc[-1]["rsi"])
-    adx = float(df.iloc[-1]["adx"])
-    dec = MARKETS[symbol_key]["decimals"]
-
-    if symbol_key in FOREX_MIN_ADX:
-        if adx < FOREX_MIN_ADX[symbol_key]:
-            log.info(f"REJECTED {symbol_key} weak forex trend ADX {adx:.1f}")
-            return
-
-    best      = max(buy_score, sell_score)
-    direction = "BUY" if buy_score >= sell_score else "SELL"
-
+    # Asia bonus
     if asia_mode:
         buy_score  += 1 if buy_score  >= 9 else 0
         sell_score += 1 if sell_score >= 9 else 0
-        best = max(buy_score, sell_score)
 
+    # Asia Elite Filter
     if asia_mode:
-
         asia_spread_cap = MAX_SPREAD[symbol_key] * 0.75
         if spread > asia_spread_cap:
-            log.info(
-                f"REJECTED {symbol_key} Asia spread too high "
-                f"({spread:.4f} > {asia_spread_cap:.4f})"
-            )
+            log.info(f"REJECTED {symbol_key} Asia spread too high")
             return
-
-        if symbol_key in ["NAS100", "US30", "DE30", "SPX500"]:
+        if symbol_key in ["NAS100", "US30", "DE30"]:
             if max(buy_score, sell_score) < 11:
                 log.info(f"REJECTED {symbol_key} weak Asia index score")
                 return
-
-        if symbol_key in ["XAU/USD", "XAG/USD"]:
+        if symbol_key == "XAU/USD":
             if max(buy_score, sell_score) < 10:
-                log.info(f"REJECTED {symbol_key} weak Asia metals score")
+                log.info(f"REJECTED {symbol_key} weak Asia gold score")
                 return
-
-        if symbol_key in ["EUR/USD", "GBP/USD", "USD/JPY"]:
-            if max(buy_score, sell_score) < 10:
-                log.info(f"REJECTED {symbol_key} weak Asia forex score")
-                return
-
-    reversal_mode = False
 
     log.info(
         f"{symbol_key} | BUY: {buy_score} | SELL: {sell_score} | "
         f"Regime: {regime} | Trend: {trend} | Session: {session}"
     )
 
-    if symbol_key == "DE30":
-        de30_range_score = 7
-        de30_trend_score = 8
-    else:
-        de30_range_score = RANGE_MIN_SCORE
-        de30_trend_score = TREND_MIN_SCORE
-
-    if asia_mode:
-        RANGE_MIN_SCORE_ASIA = 10
-        TREND_MIN_SCORE_ASIA = 11
-    else:
-        RANGE_MIN_SCORE_ASIA = RANGE_MIN_SCORE
-        TREND_MIN_SCORE_ASIA = TREND_MIN_SCORE
-
-    if regime == "RANGE" and best < max(de30_range_score, RANGE_MIN_SCORE_ASIA):
-        log.info(f"REJECTED {symbol_key} RANGE score too low for session")
+    best_structure = max(struct_buy_score, struct_sell_score)
+    if best_structure < MARKET_MIN_STRUCTURE_SCORE[symbol_key]:
+        log.info(f"REJECTED {symbol_key} weak structure score")
         return
 
-    if regime in ["TREND", "BREAKOUT"] and best < max(de30_trend_score, TREND_MIN_SCORE_ASIA):
-        log.info(f"REJECTED {symbol_key} TREND score too low for session")
-        return
-
-    best_structure_score = max(structure_buy_score, structure_sell_score)
-    if best_structure_score < MARKET_MIN_STRUCTURE_SCORE[symbol_key]:
-        log.info(f"REJECTED {symbol_key} weak structure score {best_structure_score}")
-        return
+    direction = determine_best_direction(buy_score, sell_score)
 
     if trend == "BULL" and direction == "SELL":
-        log.info(f"REJECTED {symbol_key} countertrend SELL blocked")
+        log.info(f"REJECTED {symbol_key} countertrend SELL")
+        return
+    if trend == "BEAR" and direction == "BUY":
+        log.info(f"REJECTED {symbol_key} countertrend BUY")
         return
 
-    if trend == "BEAR" and direction == "BUY":
-        log.info(f"REJECTED {symbol_key} countertrend BUY blocked")
-        return
+    demand_zone, supply_zone = detect_supply_demand_zones(df)
+    planned_entry = float(df.iloc[-2]["close"])
+    max_entry_drift = atr * (
+        0.25 if symbol_key == "XAU/USD"
+        else 0.30 if symbol_key == "DE30"
+        else 0.35
+    )
 
     if direction == "SELL" and supply_zone:
         if price < supply_zone * 0.998:
             log.info(f"REJECTED {symbol_key} weak supply rejection")
             return
-
     if direction == "BUY" and demand_zone:
         if price > demand_zone * 1.002:
             log.info(f"REJECTED {symbol_key} weak demand rejection")
             return
+    if direction == "SELL" and price < planned_entry - max_entry_drift:
+        log.info(f"REJECTED {symbol_key} late SELL drift")
+        return
+    if direction == "BUY" and price > planned_entry + max_entry_drift:
+        log.info(f"REJECTED {symbol_key} late BUY drift")
+        return
 
-    if direction == "SELL":
-        if price < planned_entry - max_entry_drift:
-            log.info(f"REJECTED {symbol_key} late SELL drift")
-            return
-
-    if direction == "BUY":
-        if price > planned_entry + max_entry_drift:
-            log.info(f"REJECTED {symbol_key} late BUY drift")
-            return
-
-    if ENABLE_WIZARD_AI:
-        wizard_pass, wizard_score = wizard_ai_confirmation(
-            df,
-            symbol_key,
-            direction
-        )
-
-        if not wizard_pass:
-            log.info(
-                f"REJECTED {symbol_key} Wizard AI failed | "
-                f"Score: {wizard_score}"
-            )
-            return
-
-        best += int(wizard_score * 0.30)
-    else:
-        wizard_score = 0
-
+    # Correlation blocker
     if correlated_signal_block(symbol_key):
         return
+
+    # Master signal engine
+    direction, best, wizard_score = master_signal(
+        symbol_key, df, session, trend, regime,
+        buy, sell, buy_score, sell_score,
+        struct_buy_score, struct_sell_score
+    )
+
+    if direction is None:
+        return
+
+    sniper_score = ultra_sniper_score(df, symbol_key, direction)
 
     if duplicate_signal(symbol_key, direction):
         return
@@ -1515,79 +1584,14 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} cooldown {remaining}s")
         return
 
-    # Thread-safe state writes
     with signal_lock:
         _signal_sent[symbol_key]        = now
         _daily_signal_count[symbol_key] += 1
 
-    if direction == "BUY":
-        price += EXECUTION_BUFFER[symbol_key]
-    else:
-        price -= EXECUTION_BUFFER[symbol_key]
-
-    sl, tp, sl_dist, rr = calc_levels(price, atr, symbol_key, df, direction, regime)
-
-    lot = lot_for_risk(price, sl, symbol_key)
-    if asia_mode:
-        lot *= 0.50
-        lot = round(lot, 3)
-
-    timeframe            = REGIME_TIMEFRAME.get(regime, "1H / 4H")
-    signal_type          = "CONTINUATION"
-    signal_num, entry_type = get_signal_number(symbol_key, session)
-
-    log_signal(symbol_key, direction, best, rr, price, sl, tp,
-               session, regime, timeframe, signal_type)
-    sync_real_pnl()
-
-    checks    = buy if direction == "BUY" else sell
-    cond_text = "\n".join([f" {k}" for k, v in checks.items() if v])
-
-    if demand_zone:
-        cond_text += "\n DEMAND_ZONE"
-    if supply_zone:
-        cond_text += "\n SUPPLY_ZONE"
-
-    action_emoji = "📈" if direction == "BUY" else "📉"
-
-    msg = (
-        f"🎯 *{SYSTEM_VERSION}* | INSTITUTIONAL EXECUTION\n"
-        f"*{MARKETS[symbol_key]['mt5']}* | ⭐⭐⭐⭐⭐ {MARKETS[symbol_key]['tier']}\n\n"
-        f"🔥 *Action:* {direction} {action_emoji}\n"
-        f"🎯 *Signal #:* {signal_num}\n"
-        f"📍 *Entry Type:* {entry_type}\n"
-        f"🚀 *Signal Type:* CONTINUATION\n"
-        f"⭐ *Score:* {best}\n"
-        f"🧠 *Wizard AI Score:* {wizard_score if ENABLE_WIZARD_AI else 'OFF'}\n"
-        f"🧠 *Regime:* {regime}\n"
-        f"⏱ *Timeframe:* {timeframe}\n"
-        f"📊 *Market Bias:* {MARKETS[symbol_key]['bias']}\n\n"
-        f"📍 *Entry:* {price:,.{dec}f}\n"
-        f"🛑 *SL:* {sl:,.{dec}f}\n"
-        f"🎯 *TP:* {tp:,.{dec}f} *(1:{rr} RR)*\n\n"
-        f"📈 *RSI:* {rsi:.1f}\n"
-        f"📉 *ADX:* {adx:.1f}\n"
-        f"🌍 *Trend:* {trend}\n"
-        f"⏰ *Session:* {session}\n"
-        f"🧠 *Mode:* {'ASIA ELITE PRECISION' if asia_mode else 'CORE INSTITUTIONAL'}\n"
-        f"📡 *Source:* {source}\n\n"
-        f"💵 *Lot:* {lot}\n\n"
-        f"✅ *Conditions:*\n"
-        f"{cond_text}\n\n"
-        f"🛡 *ELITE INSTITUTIONAL FILTER ACTIVE*\n"
-        f"⚡ *GLOBAL ELITE INSTITUTIONAL MODE*"
-    )
-
-    # Markdown escape failsafe
-    msg = msg.replace("-", "\\-")
-
-    send_telegram(msg)
-
-    log.info(
-        f"SIGNAL SENT {symbol_key} {direction} | "
-        f"Entry: {price} | SL: {sl} | TP: {tp} | "
-        f"RR: {rr} | Type: CONTINUATION | Signal#: {signal_num} | "
-        f"EntryType: {entry_type} | Regime: {regime} | TF: {timeframe}"
+    execute_trade(
+        symbol_key, df, direction, best, wizard_score,
+        sniper_score, macro_trend, session, trend,
+        regime, buy, sell, source, asia_mode
     )
 
 # ============================================================
@@ -1599,33 +1603,37 @@ def main():
         f"🚀 *{SYSTEM_VERSION} LIVE*\n\n"
         f"📊 *Markets Active:*\n"
         f"🥇 XAU/USD\n"
-        f"🥈 XAG/USD\n"
         f"📈 NAS100\n"
-        f"📈 SPX500\n"
         f"🇩🇪 DE30\n"
-        f"🇺🇸 US30\n"
-        f"💶 EUR/USD\n"
-        f"💷 GBP/USD\n"
-        f"💴 USD/JPY\n\n"
-        f"🚀 Pure Continuation Engine Active\n"
-        f"🛡 Curated Institutional Entry Active\n"
-        f"⚡ Global Elite Pro+ Curated Mode\n"
-        f"🔒 Correlation Blocker Active\n"
-        f"📊 Daily Signal Caps Active\n"
-        f"⚡ Volatility Kill Switch Active\n"
-        f"🔐 Secure Credentials Enforced\n"
-        f"🧵 Thread Lock Protection Active\n"
-        f"♻️ Memory Control Active\n"
-        f"✅ Full Production Deployment Ready"
+        f"🇺🇸 US30\n\n"
+        f"🔱 Priority Markets: XAU/USD, NAS100, US30\n\n"
+        f"✅ Quantum Macro Filter\n"
+        f"🎯 Ultra Sniper Score\n"
+        f"⚛ WaveTrend Confirmation\n"
+        f"🌍 MTF Trend Alignment\n"
+        f"📊 Dynamic RR Engine\n"
+        f"💰 Adaptive Risk Engine\n"
+        f"🔒 Correlation Blocker\n"
+        f"🚫 False Breakout Filter\n"
+        f"🏆 Trade Quality Ranking\n"
+        f"🧠 Wizard AI Active\n"
+        f"🛡 Asia Elite Precision\n"
+        f"🧵 Thread Safe\n"
+        f"⚡ ULTIMATE HYBRID SUPREME LIVE"
     )
 
     while True:
         try:
             reset_daily()
 
+            # Priority markets first
+            ordered = PRIORITY_MARKETS + [
+                s for s in SYMBOLS if s not in PRIORITY_MARKETS
+            ]
+
             with ThreadPoolExecutor(max_workers=len(SYMBOLS)) as executor:
                 futures = []
-                for symbol in SYMBOLS:
+                for symbol in ordered:
                     futures.append(
                         executor.submit(process_symbol, symbol)
                     )
