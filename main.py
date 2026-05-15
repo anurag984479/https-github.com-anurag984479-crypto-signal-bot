@@ -2,7 +2,7 @@
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-HYBRID-SUPREME-2026-ELITE
 # XAU/USD + NAS100 + EUR/USD + GBP/JPY
-# ELITE STABILITY PATCH — SPX500 REMOVED
+# HYBRID SCALP + TREND ENGINE
 # ============================================================
 
 import gc
@@ -62,6 +62,21 @@ RR_PROFILE = {
     "NAS100":  {"TREND": 3.0, "BREAKOUT": 3.5, "RANGE": 2.3},
     "EUR/USD": {"TREND": 2.6, "BREAKOUT": 3.0, "RANGE": 2.0},
     "GBP/JPY": {"TREND": 2.8, "BREAKOUT": 3.4, "RANGE": 2.1},
+}
+
+# ============================================================
+# HYBRID SCALP SETTINGS
+# ============================================================
+SCALP_ADX_MIN      = 12
+SCALP_ADX_MAX      = 24
+SCALP_RSI_BUY_MAX  = 38
+SCALP_RSI_SELL_MIN = 62
+SCALP_MIN_SCORE    = 6
+SCALP_RR = {
+    "XAU/USD": 2.0,
+    "NAS100":  1.8,
+    "EUR/USD": 1.8,
+    "GBP/JPY": 2.0,
 }
 
 # ============================================================
@@ -1057,6 +1072,49 @@ def build_score(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score
 
 # ============================================================
+# SCALP SIGNAL ENGINE
+# ============================================================
+def scalp_signal(df, symbol_key):
+    last = df.iloc[-1]
+
+    rsi = float(last["rsi"])
+    adx = float(last["adx"])
+    atr = float(last["atr"])
+
+    bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
+    bull_wick,  bear_wick  = detect_wick_rejection(df, atr, symbol_key)
+    demand_zone, supply_zone = detect_supply_demand_zones(df)
+
+    buy_score  = 0
+    sell_score = 0
+    buy_cond   = {}
+    sell_cond  = {}
+
+    if SCALP_ADX_MIN <= adx <= SCALP_ADX_MAX:
+
+        # BUY SCALP conditions
+        if rsi <= SCALP_RSI_BUY_MAX:
+            buy_score += 2; buy_cond["RSI_EXTREME"] = True
+        if bull_sweep:
+            buy_score += 2; buy_cond["SWEEP"] = True
+        if bull_wick:
+            buy_score += 2; buy_cond["WICK"] = True
+        if demand_zone and float(last["low"]) <= float(demand_zone) * 1.001:
+            buy_score += 3; buy_cond["DEMAND_ZONE"] = True
+
+        # SELL SCALP conditions
+        if rsi >= SCALP_RSI_SELL_MIN:
+            sell_score += 2; sell_cond["RSI_EXTREME"] = True
+        if bear_sweep:
+            sell_score += 2; sell_cond["SWEEP"] = True
+        if bear_wick:
+            sell_score += 2; sell_cond["WICK"] = True
+        if supply_zone and float(last["high"]) >= float(supply_zone) * 0.999:
+            sell_score += 3; sell_cond["SUPPLY_ZONE"] = True
+
+    return buy_cond, sell_cond, buy_score, sell_score
+
+# ============================================================
 # WIZARD AI
 # ============================================================
 def wizard_ai_confirmation(df, symbol_key, direction):
@@ -1179,7 +1237,7 @@ def get_dynamic_rr(symbol_key, regime):
 # ============================================================
 # LEVELS
 # ============================================================
-def calc_levels(price, atr, symbol_key, df, direction, regime):
+def calc_levels(price, atr, symbol_key, df, direction, rr):
     min_sl   = MARKETS[symbol_key]["min_sl"]
     decimals = MARKETS[symbol_key]["decimals"]
     recent   = df.tail(8)
@@ -1195,8 +1253,6 @@ def calc_levels(price, atr, symbol_key, df, direction, regime):
         min_sl,
         min(max(atr_sl, swing_dist * 0.85), swing_dist * 1.15)
     )
-
-    rr = get_dynamic_rr(symbol_key, regime)
 
     if direction == "BUY":
         sl = price - sl_dist
@@ -1231,18 +1287,65 @@ def lot_for_risk(price, sl, symbol_key, risk_multiplier=1.0):
     return round(max(0.01, min(lot, caps[symbol_key])), 3)
 
 # ============================================================
-# MASTER SIGNAL ENGINE
+# HYBRID MASTER SIGNAL ENGINE
 # ============================================================
-def master_signal(symbol_key, df, session, trend, regime,
-                  buy, sell, buy_score, sell_score,
-                  structure_buy_score, structure_sell_score):
+def hybrid_master_signal(symbol_key, df, session, trend, regime,
+                         buy, sell, buy_score, sell_score,
+                         structure_buy_score, structure_sell_score):
 
+    sniper = ultra_sniper_score(
+        df, symbol_key,
+        determine_best_direction(buy_score, sell_score)
+    )
+
+    # --------------------------------------------------------
+    # SCALP PATH — RANGE regime only
+    # --------------------------------------------------------
+    if regime == "RANGE":
+        scalp_buy_cond, scalp_sell_cond, scalp_buy_score, scalp_sell_score = (
+            scalp_signal(df, symbol_key)
+        )
+
+        best_scalp = max(scalp_buy_score, scalp_sell_score)
+
+        if best_scalp >= SCALP_MIN_SCORE:
+            direction  = "BUY" if scalp_buy_score >= scalp_sell_score else "SELL"
+            best       = best_scalp + sniper
+            rr         = SCALP_RR[symbol_key]
+
+            log.info(
+                f"{symbol_key} SCALP MODE | Dir: {direction} | "
+                f"Score: {best_scalp} | Sniper: {sniper}"
+            )
+
+            # Scalp uses relaxed Wizard check — optional pass
+            wizard_score = 0
+            if ENABLE_WIZARD_AI:
+                _, wizard_score = wizard_ai_confirmation(
+                    df, symbol_key, direction
+                )
+                best += int(wizard_score * 0.20)
+
+            if VOLATILITY_KILL:
+                if not quantum_volatility_ok(df):
+                    log.info(f"REJECTED {symbol_key} scalp volatility filter")
+                    return None, None, None, None, None
+
+            scalp_cond = (
+                scalp_buy_cond if direction == "BUY" else scalp_sell_cond
+            )
+
+            return direction, best, wizard_score, rr, "SCALP"
+
+    # --------------------------------------------------------
+    # TREND PATH — TREND / BREAKOUT regimes
+    # --------------------------------------------------------
     direction = determine_best_direction(buy_score, sell_score)
     best      = max(buy_score, sell_score)
 
     if not quantum_macro_filter(df, direction):
         log.info(f"REJECTED {symbol_key} quantum macro filter")
-        return None, None, None
+        return None, None, None, None, None
 
     if ENABLE_WIZARD_AI:
         wizard_pass, wizard_score = wizard_ai_confirmation(
@@ -1253,13 +1356,12 @@ def master_signal(symbol_key, df, session, trend, regime,
                 f"REJECTED {symbol_key} Wizard AI failed | "
                 f"Score: {wizard_score}"
             )
-            return None, None, None
+            return None, None, None, None, None
         best += int(wizard_score * 0.30)
     else:
         wizard_score = 0
 
-    sniper = ultra_sniper_score(df, symbol_key, direction)
-    best  += sniper
+    best += sniper
 
     required = SESSION_THRESHOLDS.get(session, 16)
     if best < required:
@@ -1267,26 +1369,28 @@ def master_signal(symbol_key, df, session, trend, regime,
             f"REJECTED {symbol_key} session score too low "
             f"({best} < {required})"
         )
-        return None, None, None
+        return None, None, None, None, None
 
     if VOLATILITY_KILL:
         if not quantum_volatility_ok(df):
             log.info(f"REJECTED {symbol_key} quantum volatility filter")
-            return None, None, None
+            return None, None, None, None, None
 
     if FALSE_BREAK_FILTER and regime in ["TREND", "BREAKOUT"]:
         if not false_breakout_filter(df, direction):
             log.info(f"REJECTED {symbol_key} false breakout filter")
-            return None, None, None
+            return None, None, None, None, None
 
-    return direction, best, wizard_score
+    rr = get_dynamic_rr(symbol_key, regime)
+
+    return direction, best, wizard_score, rr, "TREND"
 
 # ============================================================
 # EXECUTE TRADE
 # ============================================================
 def execute_trade(symbol_key, df, direction, best, wizard_score,
                   sniper_score, macro_trend, session, trend,
-                  regime, buy, sell, source, asia_mode):
+                  regime, buy, sell, source, asia_mode, rr, mode):
 
     price = float(df.iloc[-1]["close"])
     atr   = float(df.iloc[-1]["atr"])
@@ -1302,19 +1406,22 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         price -= EXECUTION_BUFFER[symbol_key]
 
     sl, tp, sl_dist, rr = calc_levels(
-        price, atr, symbol_key, df, direction, regime
+        price, atr, symbol_key, df, direction, rr
     )
 
     risk_mult = adaptive_risk(session)
     lot       = lot_for_risk(price, sl, symbol_key, risk_mult)
 
     quality        = trade_quality(best)
-    timeframe      = REGIME_TIMEFRAME.get(regime, "1H / 4H")
+    timeframe      = REGIME_TIMEFRAME.get(
+        "SCALP" if mode == "SCALP" else regime, "1H / 4H"
+    )
     signal_num, entry_type = get_signal_number(symbol_key, session)
+    signal_type = "SCALP" if mode == "SCALP" else "CONTINUATION"
 
     log_signal(
         symbol_key, direction, best, rr, price, sl, tp,
-        session, regime, timeframe, "CONTINUATION"
+        session, regime, timeframe, signal_type
     )
     sync_real_pnl()
 
@@ -1331,6 +1438,12 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         if symbol_key in PRIORITY_MARKETS else ""
     )
 
+    mode_label = (
+        "SCALP ELITE"         if mode == "SCALP"
+        else "ASIA ELITE PRECISION" if asia_mode
+        else "CORE INSTITUTIONAL"
+    )
+
     msg = (
         f"🎯 *{SYSTEM_VERSION}* | INSTITUTIONAL EXECUTION\n"
         f"*{MARKETS[symbol_key]['mt5']}* | "
@@ -1339,11 +1452,11 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         f"🔥 *Action:* {direction} {action_emoji}\n"
         f"🎯 *Signal #:* {signal_num}\n"
         f"📍 *Entry Type:* {entry_type}\n"
-        f"🚀 *Signal Type:* CONTINUATION\n"
+        f"🚀 *Signal Type:* {signal_type}\n"
         f"⭐ *Total Score:* {best}\n"
         f"🏆 *Trade Quality:* {quality}\n"
         f"🌍 *Macro Trend:* {macro_trend}\n"
-        f"⚛ *Quantum Filter:* PASS\n"
+        f"⚛ *Quantum Filter:* {'PASS' if mode == 'TREND' else 'SCALP MODE'}\n"
         f"🎯 *Sniper Score:* {sniper_score}\n"
         f"🧠 *Wizard AI Score:* "
         f"{wizard_score if ENABLE_WIZARD_AI else 'OFF'}\n"
@@ -1357,8 +1470,7 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         f"📉 *ADX:* {adx:.1f}\n"
         f"🌍 *Trend:* {trend}\n"
         f"⏰ *Session:* {session}\n"
-        f"🧠 *Mode:* "
-        f"{'ASIA ELITE PRECISION' if asia_mode else 'CORE INSTITUTIONAL'}\n"
+        f"🧠 *Mode:* {mode_label}\n"
         f"📡 *Source:* {source}\n\n"
         f"💵 *Lot:* {lot}\n\n"
         f"✅ *Conditions:*\n"
@@ -1372,7 +1484,7 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
     log.info(
         f"SIGNAL SENT {symbol_key} {direction} | "
         f"Entry: {price} | SL: {sl} | TP: {tp} | RR: {rr} | "
-        f"Quality: {quality} | Sniper: {sniper_score} | "
+        f"Quality: {quality} | Sniper: {sniper_score} | Mode: {mode} | "
         f"Signal#: {signal_num} | Regime: {regime}"
     )
 
@@ -1456,10 +1568,12 @@ def process_symbol(symbol_key):
     buy_score  += struct_buy_score
     sell_score += struct_sell_score
 
+    # Asia bonus
     if asia_mode:
         buy_score  += 1 if buy_score  >= 9 else 0
         sell_score += 1 if sell_score >= 9 else 0
 
+    # Asia Elite Filter
     if asia_mode:
         asia_spread_cap = MAX_SPREAD[symbol_key] * 1.05
         if spread > asia_spread_cap:
@@ -1470,12 +1584,10 @@ def process_symbol(symbol_key):
             if max(buy_score, sell_score) < 7:
                 log.info(f"REJECTED {symbol_key} weak Asia gold score")
                 return
-
         elif symbol_key == "NAS100":
             if max(buy_score, sell_score) < 8:
                 log.info(f"REJECTED {symbol_key} weak Asia index score")
                 return
-
         elif symbol_key in ["EUR/USD", "GBP/JPY"]:
             if max(buy_score, sell_score) < 7:
                 log.info(f"REJECTED {symbol_key} weak Asia forex score")
@@ -1486,18 +1598,21 @@ def process_symbol(symbol_key):
         f"Regime: {regime} | Trend: {trend} | Session: {session}"
     )
 
-    best_structure = max(struct_buy_score, struct_sell_score)
-    if best_structure < MARKET_MIN_STRUCTURE_SCORE[symbol_key]:
-        log.info(f"REJECTED {symbol_key} weak structure score")
-        return
+    # Structure score check — skip for RANGE (scalp handles it)
+    if regime != "RANGE":
+        best_structure = max(struct_buy_score, struct_sell_score)
+        if best_structure < MARKET_MIN_STRUCTURE_SCORE[symbol_key]:
+            log.info(f"REJECTED {symbol_key} weak structure score")
+            return
 
-    direction = determine_best_direction(buy_score, sell_score)
+    direction_pre = determine_best_direction(buy_score, sell_score)
 
-    if symbol_key != "XAU/USD":
-        if trend == "BULL" and direction == "SELL":
+    # Countertrend block — only for TREND/BREAKOUT, gold exempt
+    if regime != "RANGE" and symbol_key != "XAU/USD":
+        if trend == "BULL" and direction_pre == "SELL":
             log.info(f"REJECTED {symbol_key} countertrend SELL")
             return
-        if trend == "BEAR" and direction == "BUY":
+        if trend == "BEAR" and direction_pre == "BUY":
             log.info(f"REJECTED {symbol_key} countertrend BUY")
             return
 
@@ -1505,25 +1620,25 @@ def process_symbol(symbol_key):
     planned_entry   = float(df.iloc[-2]["close"])
     max_entry_drift = atr * 0.35
 
-    if direction == "SELL" and supply_zone:
+    if direction_pre == "SELL" and supply_zone:
         if price < supply_zone * 0.998:
             log.info(f"REJECTED {symbol_key} weak supply rejection")
             return
-    if direction == "BUY" and demand_zone:
+    if direction_pre == "BUY" and demand_zone:
         if price > demand_zone * 1.002:
             log.info(f"REJECTED {symbol_key} weak demand rejection")
             return
-    if direction == "SELL" and price < planned_entry - max_entry_drift:
+    if direction_pre == "SELL" and price < planned_entry - max_entry_drift:
         log.info(f"REJECTED {symbol_key} late SELL drift")
         return
-    if direction == "BUY" and price > planned_entry + max_entry_drift:
+    if direction_pre == "BUY" and price > planned_entry + max_entry_drift:
         log.info(f"REJECTED {symbol_key} late BUY drift")
         return
 
     if correlated_signal_block(symbol_key):
         return
 
-    direction, best, wizard_score = master_signal(
+    direction, best, wizard_score, rr, mode = hybrid_master_signal(
         symbol_key, df, session, trend, regime,
         buy, sell, buy_score, sell_score,
         struct_buy_score, struct_sell_score
@@ -1550,7 +1665,7 @@ def process_symbol(symbol_key):
     execute_trade(
         symbol_key, df, direction, best, wizard_score,
         sniper_score, macro_trend, session, trend,
-        regime, buy, sell, source, asia_mode
+        regime, buy, sell, source, asia_mode, rr, mode
     )
 
 # ============================================================
@@ -1577,8 +1692,9 @@ def main():
         f"🏆 Trade Quality Ranking\n"
         f"🧠 Wizard AI Active\n"
         f"🛡 Asia Elite Precision\n"
+        f"⚡ Hybrid Scalp Engine Active\n"
         f"🧵 Thread Safe\n"
-        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — SPX500 REMOVED"
+        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — SCALP + TREND LIVE"
     )
 
     while True:
