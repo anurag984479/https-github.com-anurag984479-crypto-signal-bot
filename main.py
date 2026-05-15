@@ -2,7 +2,7 @@
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-HYBRID-SUPREME-2026-ELITE
 # XAU/USD + NAS100 + SPX500 + EUR/USD + GBP/JPY
-# 2-5 HIGH QUALITY TRADES PER DAY
+# CRITICAL LIVE FIXES + BALANCED ELITE SETTINGS
 # ============================================================
 
 import gc
@@ -46,13 +46,13 @@ PRIORITY_MARKETS = [
 ]
 
 # ============================================================
-# PATCH A — SESSION SCORE THRESHOLDS
+# SESSION SCORE THRESHOLDS — balanced
 # ============================================================
 SESSION_THRESHOLDS = {
-    "Asian Precision": 20,
-    "London":          17,
-    "NY Killzone":     17,
-    "NY+London":       16,
+    "Asian Precision": 18,
+    "London":          16,
+    "NY Killzone":     16,
+    "NY+London":       15,
 }
 
 # ============================================================
@@ -156,7 +156,7 @@ SYMBOLS = [
 ATR_MULT               = 0.28
 VOL_MULT               = 1.10
 ADX_THRESHOLD          = 24
-SIGNAL_COOLDOWN        = 5400   # PATCH E
+SIGNAL_COOLDOWN        = 3600   # balanced cooldown
 HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
@@ -168,7 +168,7 @@ AOX_FAST            = 5
 AOX_SLOW            = 34
 
 ENABLE_WIZARD_AI     = True
-WIZARD_MIN_SCORE     = 18      # PATCH B
+WIZARD_MIN_SCORE     = 16      # FIX 1 — elite quality maintained
 WIZARD_VOLUME_MULT   = 1.5
 WIZARD_ADX_THRESHOLD = 25
 
@@ -236,14 +236,14 @@ MARKET_STRUCTURE = {
 }
 
 # ============================================================
-# PATCH C — STRUCTURE SCORE THRESHOLDS
+# FIX 3 — STRUCTURE SCORE THRESHOLDS
 # ============================================================
 MARKET_MIN_STRUCTURE_SCORE = {
-    "XAU/USD": 6,
+    "XAU/USD": 5,
     "NAS100":  7,
     "SPX500":  6,
-    "EUR/USD": 6,
-    "GBP/JPY": 7,
+    "EUR/USD": 5,
+    "GBP/JPY": 5,
 }
 
 # ============================================================
@@ -479,7 +479,7 @@ def loss_streak_lock():
     return False
 
 # ============================================================
-# PATCH G — DATA FETCHING with deep history
+# DATA FETCHING
 # ============================================================
 def fetch_yf(ticker, period="15d", interval="5m"):
     for attempt in range(3):
@@ -951,7 +951,7 @@ def correlated_signal_block(symbol_key):
     return False
 
 # ============================================================
-# PATCH F — DUPLICATE SIGNAL FILTER
+# DUPLICATE SIGNAL FILTER
 # ============================================================
 def duplicate_signal(symbol_key, direction):
     now = time.time()
@@ -1062,7 +1062,7 @@ def build_score(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score
 
 # ============================================================
-# WIZARD AI — PATCH B: WIZARD_MIN_SCORE = 18
+# WIZARD AI — FIX 1: WIZARD_MIN_SCORE = 16
 # ============================================================
 def wizard_ai_confirmation(df, symbol_key, direction):
     if len(df) < 250:
@@ -1267,7 +1267,7 @@ def master_signal(symbol_key, df, session, trend, regime,
     sniper = ultra_sniper_score(df, symbol_key, direction)
     best  += sniper
 
-    required = SESSION_THRESHOLDS.get(session, 17)
+    required = SESSION_THRESHOLDS.get(session, 16)
     if best < required:
         log.info(
             f"REJECTED {symbol_key} session score too low "
@@ -1421,8 +1421,8 @@ def process_symbol(symbol_key):
 
     df = add_ind(df)
 
-    # PATCH H — minimum 150 rows after indicators
-    if df is None or len(df) < 150:
+    # FIX 2 — relaxed data requirement for forex feeds
+    if df is None or len(df) < 100:
         log.info(f"REJECTED {symbol_key} insufficient data after indicators")
         return
 
@@ -1468,25 +1468,25 @@ def process_symbol(symbol_key):
         buy_score  += 1 if buy_score  >= 9 else 0
         sell_score += 1 if sell_score >= 9 else 0
 
-    # PATCH D — Asia strict mode restored
+    # FIX 4 — balanced Asia Elite Filter
     if asia_mode:
-        asia_spread_cap = MAX_SPREAD[symbol_key] * 1.00
+        asia_spread_cap = MAX_SPREAD[symbol_key] * 1.05
         if spread > asia_spread_cap:
             log.info(f"REJECTED {symbol_key} Asia spread too high")
             return
 
         if symbol_key == "XAU/USD":
-            if max(buy_score, sell_score) < 9:
+            if max(buy_score, sell_score) < 8:
                 log.info(f"REJECTED {symbol_key} weak Asia gold score")
                 return
 
         if symbol_key in ["NAS100", "SPX500"]:
-            if max(buy_score, sell_score) < 10:
+            if max(buy_score, sell_score) < 9:
                 log.info(f"REJECTED {symbol_key} weak Asia index score")
                 return
 
         if symbol_key in ["EUR/USD", "GBP/JPY"]:
-            if max(buy_score, sell_score) < 9:
+            if max(buy_score, sell_score) < 8:
                 log.info(f"REJECTED {symbol_key} weak Asia forex score")
                 return
 
@@ -1502,12 +1502,14 @@ def process_symbol(symbol_key):
 
     direction = determine_best_direction(buy_score, sell_score)
 
-    if trend == "BULL" and direction == "SELL":
-        log.info(f"REJECTED {symbol_key} countertrend SELL")
-        return
-    if trend == "BEAR" and direction == "BUY":
-        log.info(f"REJECTED {symbol_key} countertrend BUY")
-        return
+    # FIX 5 — Gold allowed countertrend
+    if symbol_key != "XAU/USD":
+        if trend == "BULL" and direction == "SELL":
+            log.info(f"REJECTED {symbol_key} countertrend SELL")
+            return
+        if trend == "BEAR" and direction == "BUY":
+            log.info(f"REJECTED {symbol_key} countertrend BUY")
+            return
 
     demand_zone, supply_zone = detect_supply_demand_zones(df)
     planned_entry   = float(df.iloc[-2]["close"])
@@ -1587,7 +1589,7 @@ def main():
         f"🧠 Wizard AI Active\n"
         f"🛡 Asia Elite Precision\n"
         f"🧵 Thread Safe\n"
-        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — 2-5 ELITE TRADES/DAY"
+        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — BALANCED LIVE"
     )
 
     while True:
