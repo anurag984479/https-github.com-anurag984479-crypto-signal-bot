@@ -1,10 +1,8 @@
-
-
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
-# ULTIMATE-HYBRID-SUPREME
+# ULTIMATE-HYBRID-SUPREME-2026-ELITE
 # XAU/USD + NAS100 + SPX500 + EUR/USD + GBP/JPY
-# MAXIMUM WINRATE ENGINE
+# MAXIMUM WINRATE ENGINE — TRUE FINAL 2026 MASTER
 # ============================================================
 
 import gc
@@ -20,14 +18,14 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
-SYSTEM_VERSION = "ULTIMATE-HYBRID-SUPREME"
+SYSTEM_VERSION = "ULTIMATE-HYBRID-SUPREME-2026-ELITE"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("ULTIMATE-SUPREME")
+log = logging.getLogger("ULTIMATE-SUPREME-2026")
 
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
@@ -51,10 +49,10 @@ PRIORITY_MARKETS = [
 # SESSION SCORE THRESHOLDS
 # ============================================================
 SESSION_THRESHOLDS = {
-    "Asian Precision": 22,
-    "London":          18,
-    "NY Killzone":     18,
-    "NY+London":       17,
+    "Asian Precision": 20,
+    "London":          17,
+    "NY Killzone":     17,
+    "NY+London":       16,
 }
 
 # ============================================================
@@ -69,14 +67,14 @@ RR_PROFILE = {
 }
 
 # ============================================================
-# MARKETS
+# MARKETS — all price ranges infinite
 # ============================================================
 MARKETS = {
     "XAU/USD": {
         "mt5":         "XAUUSD.Qraw",
         "yf":          "GC=F",
-        "price_lo":    4000,
-        "price_hi":    7000,
+        "price_lo":    0,
+        "price_hi":    float("inf"),
         "sessions":    [0, 20],
         "decimals":    2,
         "min_sl":      7.0,
@@ -89,8 +87,8 @@ MARKETS = {
     "NAS100": {
         "mt5":         "NAS100",
         "yf":          "^NDX",
-        "price_lo":    15000,
-        "price_hi":    30000,
+        "price_lo":    0,
+        "price_hi":    float("inf"),
         "sessions":    [0, 21],
         "decimals":    1,
         "min_sl":      55.0,
@@ -103,8 +101,8 @@ MARKETS = {
     "SPX500": {
         "mt5":         "SPX500",
         "yf":          "^GSPC",
-        "price_lo":    3500,
-        "price_hi":    7000,
+        "price_lo":    0,
+        "price_hi":    float("inf"),
         "sessions":    [0, 21],
         "decimals":    1,
         "min_sl":      25.0,
@@ -117,8 +115,8 @@ MARKETS = {
     "EUR/USD": {
         "mt5":         "EURUSD",
         "yf":          "EURUSD=X",
-        "price_lo":    0.90,
-        "price_hi":    1.30,
+        "price_lo":    0,
+        "price_hi":    float("inf"),
         "sessions":    [0, 24],
         "decimals":    5,
         "min_sl":      0.0012,
@@ -131,8 +129,8 @@ MARKETS = {
     "GBP/JPY": {
         "mt5":         "GBPJPY",
         "yf":          "GBPJPY=X",
-        "price_lo":    140,
-        "price_hi":    230,
+        "price_lo":    0,
+        "price_hi":    float("inf"),
         "sessions":    [0, 24],
         "decimals":    3,
         "min_sl":      0.180,
@@ -156,9 +154,9 @@ SYMBOLS = [
 # CORE SETTINGS
 # ============================================================
 ATR_MULT               = 0.28
-VOL_MULT               = 1.15
-ADX_THRESHOLD          = 26
-SIGNAL_COOLDOWN        = 7200
+VOL_MULT               = 1.10
+ADX_THRESHOLD          = 24
+SIGNAL_COOLDOWN        = 5400
 HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
@@ -170,7 +168,7 @@ AOX_FAST            = 5
 AOX_SLOW            = 34
 
 ENABLE_WIZARD_AI     = True
-WIZARD_MIN_SCORE     = 20
+WIZARD_MIN_SCORE     = 18
 WIZARD_VOLUME_MULT   = 1.5
 WIZARD_ADX_THRESHOLD = 25
 
@@ -241,11 +239,11 @@ MARKET_STRUCTURE = {
 # MARKET-SPECIFIC STRUCTURE SCORE FILTERS
 # ============================================================
 MARKET_MIN_STRUCTURE_SCORE = {
-    "XAU/USD": 7,
-    "NAS100":  8,
-    "SPX500":  7,
-    "EUR/USD": 7,
-    "GBP/JPY": 8,
+    "XAU/USD": 6,
+    "NAS100":  7,
+    "SPX500":  6,
+    "EUR/USD": 6,
+    "GBP/JPY": 7,
 }
 
 # ============================================================
@@ -284,11 +282,11 @@ DOLLAR_PER_POINT = {
 # MAX SPREAD
 # ============================================================
 MAX_SPREAD = {
-    "XAU/USD": 1.20,
-    "NAS100":  4.0,
-    "SPX500":  2.5,
-    "EUR/USD": 0.00025,
-    "GBP/JPY": 0.045,
+    "XAU/USD": 1.35,
+    "NAS100":  5.0,
+    "SPX500":  3.5,
+    "EUR/USD": 0.00035,
+    "GBP/JPY": 0.060,
 }
 
 # ============================================================
@@ -512,10 +510,16 @@ def fetch_yf(ticker, period="15d", interval="5m"):
 
 def fetch_market_data(symbol_key):
     yf_sym = MARKETS[symbol_key]["yf"]
-    if yf_sym:
-        df = fetch_yf(yf_sym)
-        if df is not None and len(df) > 100:
-            return df
+
+    if symbol_key in ["EUR/USD", "GBP/JPY"]:
+        df = fetch_yf(yf_sym, period="30d", interval="5m")
+    elif symbol_key == "XAU/USD":
+        df = fetch_yf(yf_sym, period="20d", interval="5m")
+    else:
+        df = fetch_yf(yf_sym, period="15d", interval="5m")
+
+    if df is not None and len(df) > 220:
+        return df
     return None
 
 def get_entry_data(symbol_key):
@@ -534,7 +538,7 @@ def get_spread(df):
     return avg_range * 0.18
 
 # ============================================================
-# INDICATORS
+# INDICATORS — safe ffill engine
 # ============================================================
 def add_ind(df):
     df  = df.copy()
@@ -566,6 +570,7 @@ def add_ind(df):
     df["wt2"] = df["wt1"].rolling(4).mean()
 
     df.replace([float("inf"), float("-inf")], pd.NA, inplace=True)
+    df.ffill(inplace=True)
     df.dropna(inplace=True)
 
     return df
@@ -670,7 +675,7 @@ def h4_trend(df, direction):
     return price > ema50 if direction == "BUY" else price < ema50
 
 # ============================================================
-# QUANTUM MACRO FILTER
+# QUANTUM MACRO FILTER — score >= 7
 # ============================================================
 def quantum_macro_filter(df, direction):
     if df is None:
@@ -680,7 +685,7 @@ def quantum_macro_filter(df, direction):
     if daily_trend(df, direction):  score += 3
     if h12_trend(df, direction):    score += 2
     if h4_trend(df, direction):     score += 2
-    return score >= 8
+    return score >= 7
 
 # ============================================================
 # PATTERN DETECTION
@@ -869,8 +874,8 @@ def get_signal_number(symbol_key, session):
         _signal_counter[symbol_key]["count"] += 1
     n = _signal_counter[symbol_key]["count"]
     entry_type = (
-        "PRIMARY BREAKOUT"    if n == 1 else
-        "SECONDARY RETEST"    if n == 2 else
+        "PRIMARY BREAKOUT"      if n == 1 else
+        "SECONDARY RETEST"      if n == 2 else
         "ADVANCED CONTINUATION"
     )
     return n, entry_type
@@ -904,6 +909,9 @@ def volatility_danger(df, symbol_key):
         return False
     return (atr / atr_avg) > 2.0
 
+# ============================================================
+# QUANTUM VOLATILITY — widened range 0.75–2.10
+# ============================================================
 def quantum_volatility_ok(df):
     if len(df) < 60:
         return False
@@ -912,10 +920,10 @@ def quantum_volatility_ok(df):
     if pd.isna(atr_avg) or atr_avg == 0:
         return False
     ratio = atr / atr_avg
-    return 0.85 <= ratio <= 1.80
+    return 0.75 <= ratio <= 2.10
 
 # ============================================================
-# FALSE BREAKOUT FILTER
+# FALSE BREAKOUT FILTER — simplified close only
 # ============================================================
 def false_breakout_filter(df, direction):
     if len(df) < 3:
@@ -923,15 +931,9 @@ def false_breakout_filter(df, direction):
     last = df.iloc[-1]
     prev = df.iloc[-2]
     if direction == "BUY":
-        return (
-            float(last["close"]) > float(prev["high"])
-            and float(last["low"]) > float(prev["low"])
-        )
+        return float(last["close"]) > float(prev["high"])
     if direction == "SELL":
-        return (
-            float(last["close"]) < float(prev["low"])
-            and float(last["high"]) < float(prev["high"])
-        )
+        return float(last["close"]) < float(prev["low"])
     return False
 
 # ============================================================
@@ -957,13 +959,13 @@ def correlated_signal_block(symbol_key):
 def duplicate_signal(symbol_key, direction):
     now = time.time()
     duplicate_windows = {
-        "XAU/USD": 5400,
-        "NAS100":  7200,
-        "SPX500":  7200,
-        "EUR/USD": 5400,
-        "GBP/JPY": 5400,
+        "XAU/USD": 3600,
+        "NAS100":  5400,
+        "SPX500":  5400,
+        "EUR/USD": 3600,
+        "GBP/JPY": 3600,
     }
-    cooldown = duplicate_windows.get(symbol_key, 5400)
+    cooldown = duplicate_windows.get(symbol_key, 3600)
     with signal_lock:
         last_dir  = _last_signal_direction.get(symbol_key)
         last_time = _last_signal_time.get(symbol_key, 0)
@@ -1082,17 +1084,17 @@ def wizard_ai_confirmation(df, symbol_key, direction):
     score = 0
 
     if direction == "BUY":
-        if close > ema50:                score += 3
-        if ema50  > ema200:              score += 3
-        if rsi    > 55:                  score += 2
+        if close > ema50:                 score += 3
+        if ema50  > ema200:               score += 3
+        if rsi    > 55:                   score += 2
         if adx    > WIZARD_ADX_THRESHOLD: score += 2
-        if aox    > 0:                   score += 2
+        if aox    > 0:                    score += 2
     elif direction == "SELL":
-        if close < ema50:                score += 3
-        if ema50  < ema200:              score += 3
-        if rsi    < 45:                  score += 2
+        if close < ema50:                 score += 3
+        if ema50  < ema200:               score += 3
+        if rsi    < 45:                   score += 2
         if adx    > WIZARD_ADX_THRESHOLD: score += 2
-        if aox    < 0:                   score += 2
+        if aox    < 0:                    score += 2
 
     if volma > 0 and volume > volma * WIZARD_VOLUME_MULT:
         score += 3
@@ -1171,11 +1173,14 @@ def trade_quality(score):
     elif score >= 22: return "HIGH-PROBABILITY"
     return "STANDARD"
 
+# ============================================================
+# ADAPTIVE RISK — updated multipliers
+# ============================================================
 def adaptive_risk(session):
-    if   session == "Asian Precision": return 0.5
-    elif session == "London":          return 1.0
-    elif session == "NY Killzone":     return 1.2
-    return 1.0
+    if   session == "Asian Precision": return 0.7
+    elif session == "London":          return 1.2
+    elif session == "NY Killzone":     return 1.4
+    return 1.1
 
 def get_dynamic_rr(symbol_key, regime):
     return RR_PROFILE.get(symbol_key, {}).get(
@@ -1201,9 +1206,6 @@ def calc_levels(price, atr, symbol_key, df, direction, regime):
         min_sl,
         min(max(atr_sl, swing_dist * 0.85), swing_dist * 1.15)
     )
-
-    if symbol_key == "DE30":
-        sl_dist *= 1.35 if regime == "BREAKOUT" else 1.25
 
     rr = get_dynamic_rr(symbol_key, regime)
 
@@ -1374,7 +1376,7 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         f"✅ *Conditions:*\n"
         f"{cond_text}\n\n"
         f"🛡 *ELITE INSTITUTIONAL FILTER ACTIVE*\n"
-        f"⚡ *ULTIMATE HYBRID SUPREME*"
+        f"⚡ *ULTIMATE HYBRID SUPREME — 2026 ELITE*"
     )
 
     send_telegram(msg)
@@ -1424,7 +1426,8 @@ def process_symbol(symbol_key):
         return
 
     df = add_ind(df)
-    if df is None or len(df) < 50:
+
+    if df is None or len(df) < 200:
         log.info(f"REJECTED {symbol_key} insufficient data after indicators")
         return
 
@@ -1447,7 +1450,7 @@ def process_symbol(symbol_key):
     regime = detect_market_regime(df)
 
     macro_trend = (
-        "BULL" if weekly_trend(df, "BUY")  and daily_trend(df, "BUY")
+        "BULL"    if weekly_trend(df, "BUY")  and daily_trend(df, "BUY")
         else "BEAR" if weekly_trend(df, "SELL") and daily_trend(df, "SELL")
         else "NEUTRAL"
     )
@@ -1472,20 +1475,23 @@ def process_symbol(symbol_key):
 
     # Asia Elite Filter
     if asia_mode:
-        asia_spread_cap = MAX_SPREAD[symbol_key] * 0.75
+        asia_spread_cap = MAX_SPREAD[symbol_key] * 1.00
         if spread > asia_spread_cap:
             log.info(f"REJECTED {symbol_key} Asia spread too high")
             return
-        if symbol_key in ["NAS100", "SPX500"]:
-            if max(buy_score, sell_score) < 11:
-                log.info(f"REJECTED {symbol_key} weak Asia index score")
-                return
+
         if symbol_key == "XAU/USD":
-            if max(buy_score, sell_score) < 10:
+            if max(buy_score, sell_score) < 9:
                 log.info(f"REJECTED {symbol_key} weak Asia gold score")
                 return
-        if symbol_key in ["EUR/USD", "GBP/JPY"]:
+
+        if symbol_key in ["NAS100", "SPX500"]:
             if max(buy_score, sell_score) < 10:
+                log.info(f"REJECTED {symbol_key} weak Asia index score")
+                return
+
+        if symbol_key in ["EUR/USD", "GBP/JPY"]:
+            if max(buy_score, sell_score) < 9:
                 log.info(f"REJECTED {symbol_key} weak Asia forex score")
                 return
 
@@ -1510,9 +1516,7 @@ def process_symbol(symbol_key):
 
     demand_zone, supply_zone = detect_supply_demand_zones(df)
     planned_entry   = float(df.iloc[-2]["close"])
-    max_entry_drift = atr * (
-        0.25 if symbol_key == "XAU/USD" else 0.35
-    )
+    max_entry_drift = atr * 0.35
 
     if direction == "SELL" and supply_zone:
         if price < supply_zone * 0.998:
@@ -1575,7 +1579,7 @@ def main():
         f"📊 SPX500\n"
         f"💶 EUR/USD\n"
         f"💷 GBP/JPY\n\n"
-        f"🔱 Priority Markets: XAU/USD, NAS100, SPX500, EUR/USD, GBP/JPY\n\n"
+        f"🔱 All Markets Priority\n\n"
         f"✅ Quantum Macro Filter\n"
         f"🎯 Ultra Sniper Score\n"
         f"⚛ WaveTrend Confirmation\n"
@@ -1588,20 +1592,16 @@ def main():
         f"🧠 Wizard AI Active\n"
         f"🛡 Asia Elite Precision\n"
         f"🧵 Thread Safe\n"
-        f"⚡ ULTIMATE HYBRID SUPREME LIVE"
+        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE LIVE"
     )
 
     while True:
         try:
             reset_daily()
 
-            ordered = PRIORITY_MARKETS + [
-                s for s in SYMBOLS if s not in PRIORITY_MARKETS
-            ]
-
             with ThreadPoolExecutor(max_workers=len(SYMBOLS)) as executor:
                 futures = []
-                for symbol in ordered:
+                for symbol in PRIORITY_MARKETS:
                     futures.append(
                         executor.submit(process_symbol, symbol)
                     )
