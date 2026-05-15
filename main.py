@@ -536,20 +536,21 @@ def fetch_yf(ticker, period="15d", interval="5m"):
 def fetch_market_data(symbol_key):
     yf_sym = MARKETS[symbol_key]["yf"]
 
-    # FIX 1 — extended data periods
+    # Yahoo Finance hard limit: 5m interval only available within last 60 days
     if symbol_key in ["EUR/USD", "GBP/JPY"]:
-        df = fetch_yf(yf_sym, period="90d", interval="5m")
+        df = fetch_yf(yf_sym, period="59d", interval="5m")
     elif symbol_key == "XAU/USD":
         df = fetch_yf(yf_sym, period="45d", interval="5m")
     else:
         df = fetch_yf(yf_sym, period="30d", interval="5m")
 
-    if df is not None and len(df) > 320:
+    if df is not None and len(df) > 150:   # lowered from 320 — forex 59d gives fewer bars
         df = df.drop_duplicates()
         df = df.reset_index(drop=True)
         return df
 
     return None
+
 
 
 def get_entry_data(symbol_key):
