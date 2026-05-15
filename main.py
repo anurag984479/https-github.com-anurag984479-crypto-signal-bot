@@ -1,5 +1,3 @@
-Here is the complete code with SPX500 removed:
-
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-HYBRID-SUPREME-2026-ELITE
