@@ -1,7 +1,9 @@
+Here is the complete updated code with all 13 steps applied to the ULTIMATE-HYBRID-SUPREME base:
+
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-HYBRID-SUPREME
-# XAU/USD + NAS100 + DE30 + US30
+# XAU/USD + NAS100 + SPX500 + EUR/USD + GBP/JPY
 # MAXIMUM WINRATE ENGINE
 # ============================================================
 
@@ -37,7 +39,13 @@ log_lock     = Lock()
 # ============================================================
 # PRIORITY MARKETS
 # ============================================================
-PRIORITY_MARKETS = ["XAU/USD", "NAS100", "US30"]
+PRIORITY_MARKETS = [
+    "XAU/USD",
+    "NAS100",
+    "SPX500",
+    "EUR/USD",
+    "GBP/JPY",
+]
 
 # ============================================================
 # SESSION SCORE THRESHOLDS
@@ -55,8 +63,9 @@ SESSION_THRESHOLDS = {
 RR_PROFILE = {
     "XAU/USD": {"TREND": 3.2, "BREAKOUT": 3.8, "RANGE": 2.4},
     "NAS100":  {"TREND": 3.0, "BREAKOUT": 3.5, "RANGE": 2.3},
-    "DE30":    {"TREND": 3.1, "BREAKOUT": 3.7, "RANGE": 2.4},
-    "US30":    {"TREND": 2.9, "BREAKOUT": 3.4, "RANGE": 2.2},
+    "SPX500":  {"TREND": 2.8, "BREAKOUT": 3.3, "RANGE": 2.2},
+    "EUR/USD": {"TREND": 2.6, "BREAKOUT": 3.0, "RANGE": 2.0},
+    "GBP/JPY": {"TREND": 2.8, "BREAKOUT": 3.4, "RANGE": 2.1},
 }
 
 # ============================================================
@@ -91,37 +100,57 @@ MARKETS = {
         "sweep_bonus": 2,
         "wick_ratio":  1.6,
     },
-    "DE30": {
-        "mt5":         "DE30.Qraw",
-        "yf":          "^GDAXI",
-        "price_lo":    15000,
-        "price_hi":    25000,
-        "sessions":    [0, 18],
-        "decimals":    1,
-        "min_sl":      50.0,
-        "tier":        "DE30 ELITE",
-        "bias":        "BULL",
-        "rr":          2.8,
-        "sweep_bonus": 3,
-        "wick_ratio":  1.7,
-    },
-    "US30": {
-        "mt5":         "US30",
-        "yf":          "^DJI",
-        "price_lo":    30000,
-        "price_hi":    50000,
+    "SPX500": {
+        "mt5":         "SPX500",
+        "yf":          "^GSPC",
+        "price_lo":    3500,
+        "price_hi":    7000,
         "sessions":    [0, 21],
         "decimals":    1,
-        "min_sl":      65.0,
-        "tier":        "US30 ELITE",
+        "min_sl":      25.0,
+        "tier":        "SP500 ELITE",
         "bias":        "BULL",
-        "rr":          2.6,
+        "rr":          2.5,
         "sweep_bonus": 2,
         "wick_ratio":  1.5,
     },
+    "EUR/USD": {
+        "mt5":         "EURUSD",
+        "yf":          "EURUSD=X",
+        "price_lo":    0.90,
+        "price_hi":    1.30,
+        "sessions":    [0, 24],
+        "decimals":    5,
+        "min_sl":      0.0012,
+        "tier":        "FOREX MAJOR ELITE",
+        "bias":        "BULL",
+        "rr":          2.4,
+        "sweep_bonus": 2,
+        "wick_ratio":  1.4,
+    },
+    "GBP/JPY": {
+        "mt5":         "GBPJPY",
+        "yf":          "GBPJPY=X",
+        "price_lo":    140,
+        "price_hi":    230,
+        "sessions":    [0, 24],
+        "decimals":    3,
+        "min_sl":      0.180,
+        "tier":        "FOREX VOLATILITY ELITE",
+        "bias":        "BULL",
+        "rr":          2.7,
+        "sweep_bonus": 3,
+        "wick_ratio":  1.7,
+    },
 }
 
-SYMBOLS = ["XAU/USD", "NAS100", "DE30", "US30"]
+SYMBOLS = [
+    "XAU/USD",
+    "NAS100",
+    "SPX500",
+    "EUR/USD",
+    "GBP/JPY",
+]
 
 # ============================================================
 # CORE SETTINGS
@@ -145,10 +174,10 @@ WIZARD_MIN_SCORE     = 20
 WIZARD_VOLUME_MULT   = 1.5
 WIZARD_ADX_THRESHOLD = 25
 
-CORRELATION_BLOCK    = True
-MAX_OPEN_CORRELATED  = 1
-VOLATILITY_KILL      = True
-FALSE_BREAK_FILTER   = True
+CORRELATION_BLOCK   = True
+MAX_OPEN_CORRELATED = 1
+VOLATILITY_KILL     = True
+FALSE_BREAK_FILTER  = True
 
 # ============================================================
 # EXECUTION SLIPPAGE BUFFER
@@ -156,8 +185,9 @@ FALSE_BREAK_FILTER   = True
 EXECUTION_BUFFER = {
     "XAU/USD": 0.20,
     "NAS100":  2.5,
-    "DE30":    3.0,
-    "US30":    2.5,
+    "SPX500":  1.5,
+    "EUR/USD": 0.00008,
+    "GBP/JPY": 0.015,
 }
 
 # ============================================================
@@ -184,14 +214,21 @@ MARKET_STRUCTURE = {
         "premium_discount_lookback": 30,
         "wick_ratio":                2.0,
     },
-    "DE30": {
+    "SPX500": {
         "sweep_lookback":            7,
-        "zone_lookback":             14,
+        "zone_lookback":             10,
         "displacement_mult":         1.25,
-        "premium_discount_lookback": 28,
-        "wick_ratio":                1.9,
+        "premium_discount_lookback": 26,
+        "wick_ratio":                1.6,
     },
-    "US30": {
+    "EUR/USD": {
+        "sweep_lookback":            10,
+        "zone_lookback":             14,
+        "displacement_mult":         1.15,
+        "premium_discount_lookback": 32,
+        "wick_ratio":                1.4,
+    },
+    "GBP/JPY": {
         "sweep_lookback":            8,
         "zone_lookback":             12,
         "displacement_mult":         1.30,
@@ -200,11 +237,15 @@ MARKET_STRUCTURE = {
     },
 }
 
+# ============================================================
+# MARKET-SPECIFIC STRUCTURE SCORE FILTERS
+# ============================================================
 MARKET_MIN_STRUCTURE_SCORE = {
     "XAU/USD": 7,
     "NAS100":  8,
-    "DE30":    7,
-    "US30":    8,
+    "SPX500":  7,
+    "EUR/USD": 7,
+    "GBP/JPY": 8,
 }
 
 # ============================================================
@@ -223,24 +264,36 @@ ALLOWED_SESSIONS = [
 ATR_MARKET_MULTIPLIER = {
     "XAU/USD": 1.05,
     "NAS100":  1.03,
-    "DE30":    1.08,
-    "US30":    1.04,
+    "SPX500":  1.02,
+    "EUR/USD": 0.95,
+    "GBP/JPY": 1.10,
 }
 
+# ============================================================
+# DOLLAR PER POINT
+# ============================================================
 DOLLAR_PER_POINT = {
     "XAU/USD": 100,
     "NAS100":  10,
-    "DE30":    10,
-    "US30":    10,
+    "SPX500":  10,
+    "EUR/USD": 100000,
+    "GBP/JPY": 1000,
 }
 
+# ============================================================
+# MAX SPREAD
+# ============================================================
 MAX_SPREAD = {
     "XAU/USD": 1.20,
     "NAS100":  4.0,
-    "DE30":    5.0,
-    "US30":    6.0,
+    "SPX500":  2.5,
+    "EUR/USD": 0.00025,
+    "GBP/JPY": 0.045,
 }
 
+# ============================================================
+# REGIME TO TIMEFRAME MAP
+# ============================================================
 REGIME_TIMEFRAME = {
     "SCALP":    "1M / 5M",
     "RANGE":    "15M / 30M",
@@ -248,12 +301,24 @@ REGIME_TIMEFRAME = {
     "BREAKOUT": "15M / 1H",
 }
 
+# ============================================================
+# DAILY SIGNAL CAPS
+# ============================================================
 MAX_SIGNALS_PER_DAY = {
     "XAU/USD": 4,
     "NAS100":  3,
-    "DE30":    2,
-    "US30":    2,
+    "SPX500":  3,
+    "EUR/USD": 4,
+    "GBP/JPY": 3,
 }
+
+# ============================================================
+# CORRELATION GROUPS
+# ============================================================
+CORRELATED_GROUPS = [
+    ["NAS100", "SPX500"],
+    ["EUR/USD", "GBP/JPY"],
+]
 
 # ============================================================
 # STATE
@@ -493,12 +558,12 @@ def add_ind(df):
     df["aox"]      = df["aox_fast"] - df["aox_slow"]
 
     # WaveTrend oscillator
-    hlc3           = (hi + lo + cl) / 3
-    esa            = hlc3.ewm(span=10, adjust=False).mean()
-    d              = (hlc3 - esa).abs().ewm(span=10, adjust=False).mean()
-    ci             = (hlc3 - esa) / (0.015 * d)
-    df["wt1"]      = ci.ewm(span=21, adjust=False).mean()
-    df["wt2"]      = df["wt1"].rolling(4).mean()
+    hlc3      = (hi + lo + cl) / 3
+    esa       = hlc3.ewm(span=10, adjust=False).mean()
+    d         = (hlc3 - esa).abs().ewm(span=10, adjust=False).mean()
+    ci        = (hlc3 - esa) / (0.015 * d)
+    df["wt1"] = ci.ewm(span=21, adjust=False).mean()
+    df["wt2"] = df["wt1"].rolling(4).mean()
 
     df.replace([float("inf"), float("-inf")], pd.NA, inplace=True)
     df.dropna(inplace=True)
@@ -531,13 +596,9 @@ def get_trend(symbol_key):
     return trend
 
 # ============================================================
-# MULTI-TIMEFRAME TREND (MTF)
+# MTF TREND
 # ============================================================
 def mtf_bullish(symbol_key, df):
-    """
-    True when price is above EMA50, EMA200, and EMA9 > EMA21.
-    Represents short, medium, and long term all aligned bullish.
-    """
     if df is None or len(df) < 200:
         return False
     last = df.iloc[-1]
@@ -561,98 +622,64 @@ def mtf_bearish(symbol_key, df):
 # WAVETREND CONFIRMATION
 # ============================================================
 def wavetrend_confirmation(df, direction):
-    """
-    WaveTrend crossover confirmation:
-    BUY  — wt1 crosses above wt2 from below -30 (oversold)
-    SELL — wt1 crosses below wt2 from above +30 (overbought)
-    """
     if len(df) < 5:
         return False
     wt1_now  = float(df.iloc[-1]["wt1"])
     wt2_now  = float(df.iloc[-1]["wt2"])
     wt1_prev = float(df.iloc[-2]["wt1"])
     wt2_prev = float(df.iloc[-2]["wt2"])
-
     if direction == "BUY":
-        return (
-            wt1_prev < wt2_prev
-            and wt1_now > wt2_now
-            and wt1_now < 20
-        )
+        return wt1_prev < wt2_prev and wt1_now > wt2_now and wt1_now < 20
     elif direction == "SELL":
-        return (
-            wt1_prev > wt2_prev
-            and wt1_now < wt2_now
-            and wt1_now > -20
-        )
+        return wt1_prev > wt2_prev and wt1_now < wt2_now and wt1_now > -20
     return False
 
 # ============================================================
-# WEEKLY / DAILY / H12 / H4 TREND APPROXIMATIONS
+# TIMEFRAME TREND LAYERS
 # ============================================================
 def weekly_trend(df, direction):
-    """Weekly: price vs 250-bar rolling mean (approx 1 week on 5m)."""
     if df is None or len(df) < 260:
         return False
     weekly_ma = df["close"].rolling(250).mean().iloc[-1]
     price     = float(df.iloc[-1]["close"])
     if pd.isna(weekly_ma):
         return False
-    if direction == "BUY":
-        return price > weekly_ma
-    return price < weekly_ma
+    return price > weekly_ma if direction == "BUY" else price < weekly_ma
 
 def daily_trend(df, direction):
-    """Daily: price vs 200-bar EMA."""
     if df is None or len(df) < 210:
         return False
-    last = df.iloc[-1]
-    price = float(last["close"])
-    ema200 = float(last["ema200"])
-    if direction == "BUY":
-        return price > ema200
-    return price < ema200
+    price  = float(df.iloc[-1]["close"])
+    ema200 = float(df.iloc[-1]["ema200"])
+    return price > ema200 if direction == "BUY" else price < ema200
 
 def h12_trend(df, direction):
-    """H12 approx: price vs 144-bar rolling mean."""
     if df is None or len(df) < 150:
         return False
     h12_ma = df["close"].rolling(144).mean().iloc[-1]
     price  = float(df.iloc[-1]["close"])
     if pd.isna(h12_ma):
         return False
-    if direction == "BUY":
-        return price > h12_ma
-    return price < h12_ma
+    return price > h12_ma if direction == "BUY" else price < h12_ma
 
 def h4_trend(df, direction):
-    """H4 approx: price vs 50-bar EMA."""
     if df is None or len(df) < 55:
         return False
-    last = df.iloc[-1]
-    price = float(last["close"])
-    ema50 = float(last["ema50"])
-    if direction == "BUY":
-        return price > ema50
-    return price < ema50
+    price = float(df.iloc[-1]["close"])
+    ema50 = float(df.iloc[-1]["ema50"])
+    return price > ema50 if direction == "BUY" else price < ema50
 
 # ============================================================
 # QUANTUM MACRO FILTER
 # ============================================================
 def quantum_macro_filter(df, direction):
-    """
-    All 4 timeframe layers must align.
-    Minimum 3/4 required for pass (prevents false rejections).
-    """
     if df is None:
         return False
-
     score = 0
     if weekly_trend(df, direction): score += 3
     if daily_trend(df, direction):  score += 3
     if h12_trend(df, direction):    score += 2
     if h4_trend(df, direction):     score += 2
-
     return score >= 8
 
 # ============================================================
@@ -736,31 +763,18 @@ def premium_discount(df, symbol_key):
     price    = float(df.iloc[-1]["close"])
     return {"discount": price < midpoint, "premium": price > midpoint}
 
-# ============================================================
-# BREAK OF STRUCTURE
-# ============================================================
 def break_of_structure(df, direction):
-    """
-    BUY  BOS: close breaks above prior swing high with momentum.
-    SELL BOS: close breaks below prior swing low with momentum.
-    """
     if len(df) < 10:
         return False
     atr   = float(df.iloc[-1]["atr"])
     close = float(df.iloc[-1]["close"])
     if direction == "BUY":
-        swing_high = float(df["high"].iloc[-10:-1].max())
-        return close > swing_high + atr * 0.10
+        return close > float(df["high"].iloc[-10:-1].max()) + atr * 0.10
     if direction == "SELL":
-        swing_low = float(df["low"].iloc[-10:-1].min())
-        return close < swing_low - atr * 0.10
+        return close < float(df["low"].iloc[-10:-1].min()) - atr * 0.10
     return False
 
-# ============================================================
-# INSTITUTIONAL VOLUME
-# ============================================================
 def institutional_volume(df):
-    """Volume is at least 1.8x the 20-bar average — institutional activity."""
     if len(df) < 21:
         return False
     last  = df.iloc[-1]
@@ -768,27 +782,19 @@ def institutional_volume(df):
     volma = float(last["volma"]) if not pd.isna(last["volma"]) else 0
     return volma > 0 and vol > volma * 1.8
 
-# ============================================================
-# STRONG CANDLE
-# ============================================================
 def strong_candle(df, direction):
-    """
-    Body is at least 60% of total candle range
-    and candle closes in the top/bottom 30% of its range.
-    """
     if len(df) < 2:
         return False
-    candle     = df.iloc[-1]
-    open_p     = float(candle["open"])
-    close_p    = float(candle["close"])
-    high_p     = float(candle["high"])
-    low_p      = float(candle["low"])
-    body       = abs(close_p - open_p)
+    candle      = df.iloc[-1]
+    open_p      = float(candle["open"])
+    close_p     = float(candle["close"])
+    high_p      = float(candle["high"])
+    low_p       = float(candle["low"])
+    body        = abs(close_p - open_p)
     total_range = high_p - low_p
     if total_range == 0:
         return False
-    body_ratio = body / total_range
-    if body_ratio < 0.60:
+    if body / total_range < 0.60:
         return False
     if direction == "BUY":
         return close_p > (low_p + total_range * 0.70)
@@ -850,7 +856,7 @@ def detect_supply_demand_zones(df):
 
 def detect_market_regime(df):
     adx = float(df.iloc[-1]["adx"])
-    if adx >= 35:  return "BREAKOUT"
+    if adx >= 35:   return "BREAKOUT"
     elif adx >= 25: return "TREND"
     else:           return "RANGE"
 
@@ -863,8 +869,8 @@ def get_signal_number(symbol_key, session):
         _signal_counter[symbol_key]["count"] += 1
     n = _signal_counter[symbol_key]["count"]
     entry_type = (
-        "PRIMARY BREAKOUT"       if n == 1 else
-        "SECONDARY RETEST"       if n == 2 else
+        "PRIMARY BREAKOUT"    if n == 1 else
+        "SECONDARY RETEST"    if n == 2 else
         "ADVANCED CONTINUATION"
     )
     return n, entry_type
@@ -890,22 +896,15 @@ def spread_too_high(symbol_key, spread):
     return spread > MAX_SPREAD[symbol_key] * 0.90
 
 def volatility_danger(df, symbol_key):
-    """
-    ATR > 1.15x its 50-bar average = dangerous volatility.
-    ATR > 2.0x its 50-bar average = extreme danger, always block.
-    """
     if len(df) < 60:
         return False
     atr     = float(df.iloc[-1]["atr"])
     atr_avg = df["atr"].rolling(50).mean().iloc[-1]
     if pd.isna(atr_avg) or atr_avg == 0:
         return False
-    ratio = atr / atr_avg
-    # Block extreme volatility always; moderate only during Asia
-    return ratio > 2.0
+    return (atr / atr_avg) > 2.0
 
 def quantum_volatility_ok(df):
-    """Returns True when volatility is healthy (not too low, not extreme)."""
     if len(df) < 60:
         return False
     atr     = float(df.iloc[-1]["atr"])
@@ -938,8 +937,6 @@ def false_breakout_filter(df, direction):
 # ============================================================
 # CORRELATION BLOCKER
 # ============================================================
-CORRELATED_GROUPS = [["NAS100", "US30", "DE30"]]
-
 def correlated_signal_block(symbol_key):
     if not CORRELATION_BLOCK:
         return False
@@ -962,8 +959,9 @@ def duplicate_signal(symbol_key, direction):
     duplicate_windows = {
         "XAU/USD": 5400,
         "NAS100":  7200,
-        "DE30":    14400,
-        "US30":    7200,
+        "SPX500":  7200,
+        "EUR/USD": 5400,
+        "GBP/JPY": 5400,
     }
     cooldown = duplicate_windows.get(symbol_key, 5400)
     with signal_lock:
@@ -1045,8 +1043,8 @@ def build_score(df, trend, symbol_key):
     buy_score  = sum(buy.values())
     sell_score = sum(sell.values())
 
-    if buy["STDV"]  and buy["AOX"]:   buy_score  += 1
-    if sell["STDV"] and sell["AOX"]:  sell_score += 1
+    if buy["STDV"]  and buy["AOX"]:  buy_score  += 1
+    if sell["STDV"] and sell["AOX"]: sell_score += 1
 
     sweep_bonus = MARKETS[symbol_key]["sweep_bonus"]
     if bull_sweep and bull_wick: buy_score  += sweep_bonus
@@ -1084,17 +1082,17 @@ def wizard_ai_confirmation(df, symbol_key, direction):
     score = 0
 
     if direction == "BUY":
-        if close > ema50:               score += 3
-        if ema50  > ema200:             score += 3
-        if rsi    > 55:                 score += 2
+        if close > ema50:                score += 3
+        if ema50  > ema200:              score += 3
+        if rsi    > 55:                  score += 2
         if adx    > WIZARD_ADX_THRESHOLD: score += 2
-        if aox    > 0:                  score += 2
+        if aox    > 0:                   score += 2
     elif direction == "SELL":
-        if close < ema50:               score += 3
-        if ema50  < ema200:             score += 3
-        if rsi    < 45:                 score += 2
+        if close < ema50:                score += 3
+        if ema50  < ema200:              score += 3
+        if rsi    < 45:                  score += 2
         if adx    > WIZARD_ADX_THRESHOLD: score += 2
-        if aox    < 0:                  score += 2
+        if aox    < 0:                   score += 2
 
     if volma > 0 and volume > volma * WIZARD_VOLUME_MULT:
         score += 3
@@ -1138,69 +1136,47 @@ def ultra_sniper_score(df, symbol_key, direction):
     bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
     bull_fvg,   bear_fvg   = fair_value_gap(df)
 
-    # MTF alignment
-    if direction == "BUY"  and mtf_bullish(symbol_key, df):  score += 6
-    if direction == "SELL" and mtf_bearish(symbol_key, df):  score += 6
+    if direction == "BUY"  and mtf_bullish(symbol_key, df): score += 6
+    if direction == "SELL" and mtf_bearish(symbol_key, df): score += 6
 
-    # WaveTrend
     if wavetrend_confirmation(df, direction): score += 3
 
-    # Liquidity sweep
     if direction == "BUY"  and bull_sweep: score += 3
     if direction == "SELL" and bear_sweep: score += 3
 
-    # FVG
     if direction == "BUY"  and bull_fvg: score += 2
     if direction == "SELL" and bear_fvg: score += 2
 
-    # Break of structure
     if break_of_structure(df, direction): score += 3
+    if institutional_volume(df):          score += 2
+    if strong_candle(df, direction):      score += 2
 
-    # Institutional volume
-    if institutional_volume(df): score += 2
-
-    # Strong candle
-    if strong_candle(df, direction): score += 2
-
-    # RSI and ADX
     if direction == "BUY"  and rsi > 60: score += 3
     if direction == "SELL" and rsi < 40: score += 3
     if adx > 30: score += 3
 
-    # Extra volume surge
     if volma > 0 and vol > volma * 1.7: score += 4
 
     return score
 
 # ============================================================
-# DETERMINE BEST DIRECTION
+# HELPERS
 # ============================================================
 def determine_best_direction(buy_score, sell_score):
-    if buy_score >= sell_score:
-        return "BUY"
-    return "SELL"
+    return "BUY" if buy_score >= sell_score else "SELL"
 
-# ============================================================
-# TRADE QUALITY RANKING
-# ============================================================
 def trade_quality(score):
     if   score >= 30: return "GOD-TIER"
     elif score >= 26: return "ELITE"
     elif score >= 22: return "HIGH-PROBABILITY"
     return "STANDARD"
 
-# ============================================================
-# ADAPTIVE RISK
-# ============================================================
 def adaptive_risk(session):
     if   session == "Asian Precision": return 0.5
     elif session == "London":          return 1.0
     elif session == "NY Killzone":     return 1.2
     return 1.0
 
-# ============================================================
-# DYNAMIC RR
-# ============================================================
 def get_dynamic_rr(symbol_key, regime):
     return RR_PROFILE.get(symbol_key, {}).get(
         regime, MARKETS[symbol_key]["rr"]
@@ -1258,8 +1234,9 @@ def lot_for_risk(price, sl, symbol_key, risk_multiplier=1.0):
     caps = {
         "XAU/USD": 1.50,
         "NAS100":  2.00,
-        "DE30":    1.50,
-        "US30":    1.50,
+        "SPX500":  2.00,
+        "EUR/USD": 3.00,
+        "GBP/JPY": 2.00,
     }
     return round(max(0.01, min(lot, caps[symbol_key])), 3)
 
@@ -1273,12 +1250,10 @@ def master_signal(symbol_key, df, session, trend, regime,
     direction = determine_best_direction(buy_score, sell_score)
     best      = max(buy_score, sell_score)
 
-    # Quantum macro filter
     if not quantum_macro_filter(df, direction):
         log.info(f"REJECTED {symbol_key} quantum macro filter")
         return None, None, None
 
-    # Wizard AI
     if ENABLE_WIZARD_AI:
         wizard_pass, wizard_score = wizard_ai_confirmation(
             df, symbol_key, direction
@@ -1293,11 +1268,9 @@ def master_signal(symbol_key, df, session, trend, regime,
     else:
         wizard_score = 0
 
-    # Ultra sniper
     sniper = ultra_sniper_score(df, symbol_key, direction)
     best  += sniper
 
-    # Session threshold
     required = SESSION_THRESHOLDS.get(session, 20)
     if best < required:
         log.info(
@@ -1306,13 +1279,11 @@ def master_signal(symbol_key, df, session, trend, regime,
         )
         return None, None, None
 
-    # Quantum volatility
     if VOLATILITY_KILL:
         if not quantum_volatility_ok(df):
             log.info(f"REJECTED {symbol_key} quantum volatility filter")
             return None, None, None
 
-    # False breakout
     if FALSE_BREAK_FILTER:
         if not false_breakout_filter(df, direction):
             log.info(f"REJECTED {symbol_key} false breakout filter")
@@ -1321,7 +1292,7 @@ def master_signal(symbol_key, df, session, trend, regime,
     return direction, best, wizard_score
 
 # ============================================================
-# EXECUTE TRADE — sends Telegram signal
+# EXECUTE TRADE
 # ============================================================
 def execute_trade(symbol_key, df, direction, best, wizard_score,
                   sniper_score, macro_trend, session, trend,
@@ -1365,8 +1336,6 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         cond_text += "\n SUPPLY_ZONE"
 
     action_emoji = "📈" if direction == "BUY" else "📉"
-
-    # Priority badge
     priority_tag = (
         "🔱 *PRIORITY MARKET*\n"
         if symbol_key in PRIORITY_MARKETS else ""
@@ -1451,7 +1420,7 @@ def process_symbol(symbol_key):
 
     spread = get_spread(df)
     if spread_too_high(symbol_key, spread):
-        log.info(f"REJECTED {symbol_key} spread {spread:.4f}")
+        log.info(f"REJECTED {symbol_key} spread {spread:.6f}")
         return
 
     df = add_ind(df)
@@ -1477,9 +1446,8 @@ def process_symbol(symbol_key):
     trend  = get_trend(symbol_key)
     regime = detect_market_regime(df)
 
-    # Macro trend for Telegram display
     macro_trend = (
-        "BULL" if weekly_trend(df, "BUY") and daily_trend(df, "BUY")
+        "BULL" if weekly_trend(df, "BUY")  and daily_trend(df, "BUY")
         else "BEAR" if weekly_trend(df, "SELL") and daily_trend(df, "SELL")
         else "NEUTRAL"
     )
@@ -1508,13 +1476,17 @@ def process_symbol(symbol_key):
         if spread > asia_spread_cap:
             log.info(f"REJECTED {symbol_key} Asia spread too high")
             return
-        if symbol_key in ["NAS100", "US30", "DE30"]:
+        if symbol_key in ["NAS100", "SPX500"]:
             if max(buy_score, sell_score) < 11:
                 log.info(f"REJECTED {symbol_key} weak Asia index score")
                 return
         if symbol_key == "XAU/USD":
             if max(buy_score, sell_score) < 10:
                 log.info(f"REJECTED {symbol_key} weak Asia gold score")
+                return
+        if symbol_key in ["EUR/USD", "GBP/JPY"]:
+            if max(buy_score, sell_score) < 10:
+                log.info(f"REJECTED {symbol_key} weak Asia forex score")
                 return
 
     log.info(
@@ -1537,11 +1509,9 @@ def process_symbol(symbol_key):
         return
 
     demand_zone, supply_zone = detect_supply_demand_zones(df)
-    planned_entry = float(df.iloc[-2]["close"])
+    planned_entry   = float(df.iloc[-2]["close"])
     max_entry_drift = atr * (
-        0.25 if symbol_key == "XAU/USD"
-        else 0.30 if symbol_key == "DE30"
-        else 0.35
+        0.25 if symbol_key == "XAU/USD" else 0.35
     )
 
     if direction == "SELL" and supply_zone:
@@ -1559,11 +1529,9 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} late BUY drift")
         return
 
-    # Correlation blocker
     if correlated_signal_block(symbol_key):
         return
 
-    # Master signal engine
     direction, best, wizard_score = master_signal(
         symbol_key, df, session, trend, regime,
         buy, sell, buy_score, sell_score,
@@ -1604,9 +1572,10 @@ def main():
         f"📊 *Markets Active:*\n"
         f"🥇 XAU/USD\n"
         f"📈 NAS100\n"
-        f"🇩🇪 DE30\n"
-        f"🇺🇸 US30\n\n"
-        f"🔱 Priority Markets: XAU/USD, NAS100, US30\n\n"
+        f"📊 SPX500\n"
+        f"💶 EUR/USD\n"
+        f"💷 GBP/JPY\n\n"
+        f"🔱 Priority Markets: XAU/USD, NAS100, SPX500, EUR/USD, GBP/JPY\n\n"
         f"✅ Quantum Macro Filter\n"
         f"🎯 Ultra Sniper Score\n"
         f"⚛ WaveTrend Confirmation\n"
@@ -1626,7 +1595,6 @@ def main():
         try:
             reset_daily()
 
-            # Priority markets first
             ordered = PRIORITY_MARKETS + [
                 s for s in SYMBOLS if s not in PRIORITY_MARKETS
             ]
