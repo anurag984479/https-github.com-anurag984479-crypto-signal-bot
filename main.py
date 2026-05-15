@@ -1,4 +1,4 @@
-Here is the complete updated code with all 13 steps applied to the ULTIMATE-HYBRID-SUPREME base:
+
 
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
