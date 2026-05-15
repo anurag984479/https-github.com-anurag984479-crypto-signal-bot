@@ -1,8 +1,10 @@
+
+
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-HYBRID-SUPREME-2026-ELITE
 # XAU/USD + NAS100 + SPX500 + EUR/USD + GBP/JPY
-# MAXIMUM WINRATE ENGINE — TRUE FINAL 2026 MASTER
+# MAXIMUM WINRATE ENGINE — FULL SIGNAL ACTIVATION
 # ============================================================
 
 import gc
@@ -46,13 +48,13 @@ PRIORITY_MARKETS = [
 ]
 
 # ============================================================
-# SESSION SCORE THRESHOLDS
+# PATCH 6 — SESSION SCORE THRESHOLDS
 # ============================================================
 SESSION_THRESHOLDS = {
-    "Asian Precision": 20,
-    "London":          17,
-    "NY Killzone":     17,
-    "NY+London":       16,
+    "Asian Precision": 18,
+    "London":          16,
+    "NY Killzone":     16,
+    "NY+London":       15,
 }
 
 # ============================================================
@@ -67,7 +69,7 @@ RR_PROFILE = {
 }
 
 # ============================================================
-# MARKETS — all price ranges infinite
+# MARKETS
 # ============================================================
 MARKETS = {
     "XAU/USD": {
@@ -156,7 +158,7 @@ SYMBOLS = [
 ATR_MULT               = 0.28
 VOL_MULT               = 1.10
 ADX_THRESHOLD          = 24
-SIGNAL_COOLDOWN        = 5400
+SIGNAL_COOLDOWN        = 3600   # PATCH 7
 HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
@@ -168,7 +170,7 @@ AOX_FAST            = 5
 AOX_SLOW            = 34
 
 ENABLE_WIZARD_AI     = True
-WIZARD_MIN_SCORE     = 18
+WIZARD_MIN_SCORE     = 16      # PATCH 1
 WIZARD_VOLUME_MULT   = 1.5
 WIZARD_ADX_THRESHOLD = 25
 
@@ -236,14 +238,14 @@ MARKET_STRUCTURE = {
 }
 
 # ============================================================
-# MARKET-SPECIFIC STRUCTURE SCORE FILTERS
+# PATCH 5 — STRUCTURE SCORE THRESHOLDS
 # ============================================================
 MARKET_MIN_STRUCTURE_SCORE = {
-    "XAU/USD": 6,
-    "NAS100":  7,
-    "SPX500":  6,
-    "EUR/USD": 6,
-    "GBP/JPY": 7,
+    "XAU/USD": 5,
+    "NAS100":  6,
+    "SPX500":  5,
+    "EUR/USD": 5,
+    "GBP/JPY": 6,
 }
 
 # ============================================================
@@ -479,7 +481,7 @@ def loss_streak_lock():
     return False
 
 # ============================================================
-# DATA FETCHING
+# PATCH 2 — DATA FETCHING with deeper history
 # ============================================================
 def fetch_yf(ticker, period="15d", interval="5m"):
     for attempt in range(3):
@@ -512,13 +514,13 @@ def fetch_market_data(symbol_key):
     yf_sym = MARKETS[symbol_key]["yf"]
 
     if symbol_key in ["EUR/USD", "GBP/JPY"]:
-        df = fetch_yf(yf_sym, period="30d", interval="5m")
+        df = fetch_yf(yf_sym, period="60d", interval="5m")
     elif symbol_key == "XAU/USD":
-        df = fetch_yf(yf_sym, period="20d", interval="5m")
+        df = fetch_yf(yf_sym, period="30d", interval="5m")
     else:
-        df = fetch_yf(yf_sym, period="15d", interval="5m")
+        df = fetch_yf(yf_sym, period="20d", interval="5m")
 
-    if df is not None and len(df) > 220:
+    if df is not None and len(df) > 180:
         return df
     return None
 
@@ -538,7 +540,7 @@ def get_spread(df):
     return avg_range * 0.18
 
 # ============================================================
-# INDICATORS — safe ffill engine
+# INDICATORS
 # ============================================================
 def add_ind(df):
     df  = df.copy()
@@ -675,7 +677,7 @@ def h4_trend(df, direction):
     return price > ema50 if direction == "BUY" else price < ema50
 
 # ============================================================
-# QUANTUM MACRO FILTER — score >= 7
+# QUANTUM MACRO FILTER
 # ============================================================
 def quantum_macro_filter(df, direction):
     if df is None:
@@ -909,9 +911,6 @@ def volatility_danger(df, symbol_key):
         return False
     return (atr / atr_avg) > 2.0
 
-# ============================================================
-# QUANTUM VOLATILITY — widened range 0.75–2.10
-# ============================================================
 def quantum_volatility_ok(df):
     if len(df) < 60:
         return False
@@ -923,7 +922,7 @@ def quantum_volatility_ok(df):
     return 0.75 <= ratio <= 2.10
 
 # ============================================================
-# FALSE BREAKOUT FILTER — simplified close only
+# FALSE BREAKOUT FILTER
 # ============================================================
 def false_breakout_filter(df, direction):
     if len(df) < 3:
@@ -954,18 +953,18 @@ def correlated_signal_block(symbol_key):
     return False
 
 # ============================================================
-# DUPLICATE SIGNAL FILTER
+# PATCH 8 — DUPLICATE SIGNAL FILTER
 # ============================================================
 def duplicate_signal(symbol_key, direction):
     now = time.time()
     duplicate_windows = {
-        "XAU/USD": 3600,
-        "NAS100":  5400,
-        "SPX500":  5400,
-        "EUR/USD": 3600,
-        "GBP/JPY": 3600,
+        "XAU/USD": 2700,
+        "NAS100":  3600,
+        "SPX500":  3600,
+        "EUR/USD": 2700,
+        "GBP/JPY": 2700,
     }
-    cooldown = duplicate_windows.get(symbol_key, 3600)
+    cooldown = duplicate_windows.get(symbol_key, 2700)
     with signal_lock:
         last_dir  = _last_signal_direction.get(symbol_key)
         last_time = _last_signal_time.get(symbol_key, 0)
@@ -1065,7 +1064,7 @@ def build_score(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score
 
 # ============================================================
-# WIZARD AI
+# WIZARD AI — PATCH 1: WIZARD_MIN_SCORE = 16
 # ============================================================
 def wizard_ai_confirmation(df, symbol_key, direction):
     if len(df) < 250:
@@ -1173,9 +1172,6 @@ def trade_quality(score):
     elif score >= 22: return "HIGH-PROBABILITY"
     return "STANDARD"
 
-# ============================================================
-# ADAPTIVE RISK — updated multipliers
-# ============================================================
 def adaptive_risk(session):
     if   session == "Asian Precision": return 0.7
     elif session == "London":          return 1.2
@@ -1273,7 +1269,7 @@ def master_signal(symbol_key, df, session, trend, regime,
     sniper = ultra_sniper_score(df, symbol_key, direction)
     best  += sniper
 
-    required = SESSION_THRESHOLDS.get(session, 20)
+    required = SESSION_THRESHOLDS.get(session, 18)
     if best < required:
         log.info(
             f"REJECTED {symbol_key} session score too low "
@@ -1427,7 +1423,8 @@ def process_symbol(symbol_key):
 
     df = add_ind(df)
 
-    if df is None or len(df) < 200:
+    # PATCH 3 — minimum 150 rows after indicators
+    if df is None or len(df) < 150:
         log.info(f"REJECTED {symbol_key} insufficient data after indicators")
         return
 
@@ -1473,7 +1470,7 @@ def process_symbol(symbol_key):
         buy_score  += 1 if buy_score  >= 9 else 0
         sell_score += 1 if sell_score >= 9 else 0
 
-    # Asia Elite Filter
+    # PATCH 4 — Relaxed Asia Elite Filter
     if asia_mode:
         asia_spread_cap = MAX_SPREAD[symbol_key] * 1.00
         if spread > asia_spread_cap:
@@ -1481,17 +1478,17 @@ def process_symbol(symbol_key):
             return
 
         if symbol_key == "XAU/USD":
-            if max(buy_score, sell_score) < 9:
+            if max(buy_score, sell_score) < 7:
                 log.info(f"REJECTED {symbol_key} weak Asia gold score")
                 return
 
         if symbol_key in ["NAS100", "SPX500"]:
-            if max(buy_score, sell_score) < 10:
+            if max(buy_score, sell_score) < 8:
                 log.info(f"REJECTED {symbol_key} weak Asia index score")
                 return
 
         if symbol_key in ["EUR/USD", "GBP/JPY"]:
-            if max(buy_score, sell_score) < 9:
+            if max(buy_score, sell_score) < 8:
                 log.info(f"REJECTED {symbol_key} weak Asia forex score")
                 return
 
@@ -1592,7 +1589,7 @@ def main():
         f"🧠 Wizard AI Active\n"
         f"🛡 Asia Elite Precision\n"
         f"🧵 Thread Safe\n"
-        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE LIVE"
+        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — FULL ACTIVATION"
     )
 
     while True:
