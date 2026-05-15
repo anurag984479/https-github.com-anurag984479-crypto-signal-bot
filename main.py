@@ -2,7 +2,7 @@
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-HYBRID-SUPREME-2026-ELITE
 # XAU/USD + NAS100 + SPX500 + EUR/USD + GBP/JPY
-# CRITICAL LIVE FIXES + BALANCED ELITE SETTINGS
+# ELITE STABILITY PATCH — FIXES 1–7 APPLIED
 # ============================================================
 
 import gc
@@ -46,7 +46,7 @@ PRIORITY_MARKETS = [
 ]
 
 # ============================================================
-# SESSION SCORE THRESHOLDS — balanced
+# SESSION SCORE THRESHOLDS
 # ============================================================
 SESSION_THRESHOLDS = {
     "Asian Precision": 18,
@@ -173,7 +173,7 @@ WIZARD_VOLUME_MULT   = 1.5
 WIZARD_ADX_THRESHOLD = 25
 
 CORRELATION_BLOCK   = True
-MAX_OPEN_CORRELATED = 1
+MAX_OPEN_CORRELATED = 2      # FIX 7 — less aggressive correlation blocking
 VOLATILITY_KILL     = True
 FALSE_BREAK_FILTER  = True
 
@@ -479,12 +479,13 @@ def loss_streak_lock():
     return False
 
 # ============================================================
-# DATA FETCHING — FIX 1: FOREX / DATA STARVATION
+# DATA FETCHING — FIX 1 + FIX 5
 # ============================================================
 def fetch_yf(ticker, period="15d", interval="5m"):
     for attempt in range(3):
         try:
             time.sleep(0.4)
+
             raw = yf.download(
                 ticker,
                 period=period,
@@ -493,25 +494,49 @@ def fetch_yf(ticker, period="15d", interval="5m"):
                 auto_adjust=True,
                 threads=False
             )
+
             if raw.empty:
                 log.error(f"{ticker} returned empty data")
                 time.sleep(1)
                 continue
+
             if isinstance(raw.columns, pd.MultiIndex):
                 raw.columns = raw.columns.get_level_values(0)
+
             raw.columns = [str(c).lower() for c in raw.columns]
-            return raw[
-                ["open", "high", "low", "close", "volume"]
-            ].reset_index(drop=True)
+
+            # FIX 5 — forex volume normalization
+            if "volume" in raw.columns:
+                if raw["volume"].sum() == 0:
+                    raw["volume"] = 1000
+            else:
+                raw["volume"] = 1000
+
+            required_cols = ["open", "high", "low", "close", "volume"]
+            for col in required_cols:
+                if col not in raw.columns:
+                    raw[col] = 0
+
+            df = raw[required_cols].copy()
+            df = df.drop_duplicates()
+            df = df.ffill()
+            df = df.bfill()
+
+            return df.reset_index(drop=True)
+
         except Exception as e:
-            log.error(f"YFinance fetch failed {ticker} | {attempt+1} | {e}")
+            log.error(
+                f"YFinance fetch failed {ticker} | Attempt {attempt+1} | {e}"
+            )
             time.sleep(1)
+
     return None
 
+
 def fetch_market_data(symbol_key):
-    # FIX 1 — extended periods to prevent data starvation
     yf_sym = MARKETS[symbol_key]["yf"]
 
+    # FIX 1 — extended data periods
     if symbol_key in ["EUR/USD", "GBP/JPY"]:
         df = fetch_yf(yf_sym, period="90d", interval="5m")
     elif symbol_key == "XAU/USD":
@@ -520,8 +545,12 @@ def fetch_market_data(symbol_key):
         df = fetch_yf(yf_sym, period="30d", interval="5m")
 
     if df is not None and len(df) > 320:
+        df = df.drop_duplicates()
+        df = df.reset_index(drop=True)
         return df
+
     return None
+
 
 def get_entry_data(symbol_key):
     df = fetch_market_data(symbol_key)
@@ -934,7 +963,7 @@ def false_breakout_filter(df, direction):
     if direction == "BUY":
         return float(last["close"]) > float(prev["high"]) - atr * 0.05
 
-    if direction == "SELL":
+    elif direction == "SELL":
         return float(last["close"]) < float(prev["low"]) + atr * 0.05
 
     return False
@@ -1244,6 +1273,7 @@ def lot_for_risk(price, sl, symbol_key, risk_multiplier=1.0):
 
 # ============================================================
 # MASTER SIGNAL ENGINE
+# FIX 6 — FALSE BREAKOUT ONLY IN TREND/BREAKOUT REGIMES
 # ============================================================
 def master_signal(symbol_key, df, session, trend, regime,
                   buy, sell, buy_score, sell_score,
@@ -1286,7 +1316,8 @@ def master_signal(symbol_key, df, session, trend, regime,
             log.info(f"REJECTED {symbol_key} quantum volatility filter")
             return None, None, None
 
-    if FALSE_BREAK_FILTER:
+    # FIX 6 — only apply false breakout filter in TREND/BREAKOUT regimes
+    if FALSE_BREAK_FILTER and regime in ["TREND", "BREAKOUT"]:
         if not false_breakout_filter(df, direction):
             log.info(f"REJECTED {symbol_key} false breakout filter")
             return None, None, None
@@ -1477,6 +1508,7 @@ def process_symbol(symbol_key):
     # FIX 3 — relaxed Asia score thresholds
     if asia_mode:
         asia_spread_cap = MAX_SPREAD[symbol_key] * 1.05
+
         if spread > asia_spread_cap:
             log.info(f"REJECTED {symbol_key} Asia spread too high")
             return
@@ -1486,12 +1518,12 @@ def process_symbol(symbol_key):
                 log.info(f"REJECTED {symbol_key} weak Asia gold score")
                 return
 
-        if symbol_key in ["NAS100", "SPX500"]:
+        elif symbol_key in ["NAS100", "SPX500"]:
             if max(buy_score, sell_score) < 8:
                 log.info(f"REJECTED {symbol_key} weak Asia index score")
                 return
 
-        if symbol_key in ["EUR/USD", "GBP/JPY"]:
+        elif symbol_key in ["EUR/USD", "GBP/JPY"]:
             if max(buy_score, sell_score) < 7:
                 log.info(f"REJECTED {symbol_key} weak Asia forex score")
                 return
@@ -1594,7 +1626,7 @@ def main():
         f"🧠 Wizard AI Active\n"
         f"🛡 Asia Elite Precision\n"
         f"🧵 Thread Safe\n"
-        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — BALANCED LIVE"
+        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — STABILITY PATCH v2"
     )
 
     while True:
