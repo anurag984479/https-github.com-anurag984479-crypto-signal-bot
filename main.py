@@ -3,6 +3,7 @@
 # ULTIMATE-HYBRID-SUPREME-2026-ELITE
 # XAU/USD + NAS100 + SPX500 + EUR/USD + GBP/JPY
 # ELITE STABILITY PATCH — FIXES 1–7 APPLIED
+# PRECISION PATCH — SIGNAL QUALITY FIXES 1–8 APPLIED
 # ============================================================
 
 import gc
@@ -68,6 +69,7 @@ RR_PROFILE = {
 
 # ============================================================
 # MARKETS
+# PRECISION PATCH FIX 5 — sweep_bonus reduced
 # ============================================================
 MARKETS = {
     "XAU/USD": {
@@ -81,7 +83,7 @@ MARKETS = {
         "tier":        "GOLD ELITE",
         "bias":        "BULL",
         "rr":          2.8,
-        "sweep_bonus": 3,
+        "sweep_bonus": 2,
         "wick_ratio":  1.8,
     },
     "NAS100": {
@@ -95,7 +97,7 @@ MARKETS = {
         "tier":        "NASDAQ ELITE",
         "bias":        "BULL",
         "rr":          2.7,
-        "sweep_bonus": 2,
+        "sweep_bonus": 1,
         "wick_ratio":  1.6,
     },
     "SPX500": {
@@ -109,7 +111,7 @@ MARKETS = {
         "tier":        "SP500 ELITE",
         "bias":        "BULL",
         "rr":          2.5,
-        "sweep_bonus": 2,
+        "sweep_bonus": 1,
         "wick_ratio":  1.5,
     },
     "EUR/USD": {
@@ -123,7 +125,7 @@ MARKETS = {
         "tier":        "FOREX MAJOR ELITE",
         "bias":        "BULL",
         "rr":          2.4,
-        "sweep_bonus": 2,
+        "sweep_bonus": 1,
         "wick_ratio":  1.4,
     },
     "GBP/JPY": {
@@ -137,7 +139,7 @@ MARKETS = {
         "tier":        "FOREX VOLATILITY ELITE",
         "bias":        "BULL",
         "rr":          2.7,
-        "sweep_bonus": 3,
+        "sweep_bonus": 2,
         "wick_ratio":  1.7,
     },
 }
@@ -152,10 +154,11 @@ SYMBOLS = [
 
 # ============================================================
 # CORE SETTINGS
+# PRECISION PATCH FIX 1 — ADX_THRESHOLD raised 24 → 28
 # ============================================================
 ATR_MULT               = 0.28
 VOL_MULT               = 1.10
-ADX_THRESHOLD          = 24
+ADX_THRESHOLD          = 28
 SIGNAL_COOLDOWN        = 3600
 HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
@@ -173,7 +176,7 @@ WIZARD_VOLUME_MULT   = 1.5
 WIZARD_ADX_THRESHOLD = 25
 
 CORRELATION_BLOCK   = True
-MAX_OPEN_CORRELATED = 2      # FIX 7 — less aggressive correlation blocking
+MAX_OPEN_CORRELATED = 2
 VOLATILITY_KILL     = True
 FALSE_BREAK_FILTER  = True
 
@@ -479,7 +482,7 @@ def loss_streak_lock():
     return False
 
 # ============================================================
-# DATA FETCHING — FIX 1 + FIX 5
+# DATA FETCHING
 # ============================================================
 def fetch_yf(ticker, period="15d", interval="5m"):
     for attempt in range(3):
@@ -505,7 +508,6 @@ def fetch_yf(ticker, period="15d", interval="5m"):
 
             raw.columns = [str(c).lower() for c in raw.columns]
 
-            # FIX 5 — forex volume normalization
             if "volume" in raw.columns:
                 if raw["volume"].sum() == 0:
                     raw["volume"] = 1000
@@ -536,7 +538,6 @@ def fetch_yf(ticker, period="15d", interval="5m"):
 def fetch_market_data(symbol_key):
     yf_sym = MARKETS[symbol_key]["yf"]
 
-    # Yahoo Finance hard limit: 5m interval only available within last 60 days
     if symbol_key in ["EUR/USD", "GBP/JPY"]:
         df = fetch_yf(yf_sym, period="59d", interval="5m")
     elif symbol_key == "XAU/USD":
@@ -544,13 +545,12 @@ def fetch_market_data(symbol_key):
     else:
         df = fetch_yf(yf_sym, period="30d", interval="5m")
 
-    if df is not None and len(df) > 150:   # lowered from 320 — forex 59d gives fewer bars
+    if df is not None and len(df) > 150:
         df = df.drop_duplicates()
         df = df.reset_index(drop=True)
         return df
 
     return None
-
 
 
 def get_entry_data(symbol_key):
@@ -592,7 +592,6 @@ def add_ind(df):
     df["aox_slow"] = ta.trend.EMAIndicator(cl, AOX_SLOW).ema_indicator()
     df["aox"]      = df["aox_fast"] - df["aox_slow"]
 
-    # WaveTrend oscillator
     hlc3      = (hi + lo + cl) / 3
     esa       = hlc3.ewm(span=10, adjust=False).mean()
     d         = (hlc3 - esa).abs().ewm(span=10, adjust=False).mean()
@@ -951,22 +950,18 @@ def quantum_volatility_ok(df):
     return 0.75 <= ratio <= 2.10
 
 # ============================================================
-# FALSE BREAKOUT FILTER — FIX 4: RELAXED THRESHOLD
+# FALSE BREAKOUT FILTER
 # ============================================================
 def false_breakout_filter(df, direction):
     if len(df) < 3:
         return False
-
     last = df.iloc[-1]
     prev = df.iloc[-2]
     atr  = float(df.iloc[-1]["atr"])
-
     if direction == "BUY":
         return float(last["close"]) > float(prev["high"]) - atr * 0.05
-
     elif direction == "SELL":
         return float(last["close"]) < float(prev["low"]) + atr * 0.05
-
     return False
 
 # ============================================================
@@ -1200,10 +1195,11 @@ def ultra_sniper_score(df, symbol_key, direction):
 def determine_best_direction(buy_score, sell_score):
     return "BUY" if buy_score >= sell_score else "SELL"
 
+# PRECISION PATCH FIX 7 — raised quality thresholds
 def trade_quality(score):
-    if   score >= 30: return "GOD-TIER"
-    elif score >= 26: return "ELITE"
-    elif score >= 22: return "HIGH-PROBABILITY"
+    if   score >= 38: return "GOD-TIER"
+    elif score >= 30: return "ELITE"
+    elif score >= 24: return "HIGH-PROBABILITY"
     return "STANDARD"
 
 def adaptive_risk(session):
@@ -1274,7 +1270,10 @@ def lot_for_risk(price, sl, symbol_key, risk_multiplier=1.0):
 
 # ============================================================
 # MASTER SIGNAL ENGINE
-# FIX 6 — FALSE BREAKOUT ONLY IN TREND/BREAKOUT REGIMES
+# PRECISION PATCH FIX 2 — RANGE regime ADX check + score bump
+# PRECISION PATCH FIX 3 — wizard score weight 0.30 → 0.18
+# PRECISION PATCH FIX 4 — sniper weight * 0.65
+# PRECISION PATCH FIX 6 — full false breakout logic
 # ============================================================
 def master_signal(symbol_key, df, session, trend, regime,
                   buy, sell, buy_score, sell_score,
@@ -1287,6 +1286,16 @@ def master_signal(symbol_key, df, session, trend, regime,
         log.info(f"REJECTED {symbol_key} quantum macro filter")
         return None, None, None
 
+    # PRECISION PATCH FIX 2 — RANGE regime extra ADX gate
+    required  = SESSION_THRESHOLDS.get(session, 16)
+    last_adx  = float(df.iloc[-1]["adx"])
+
+    if regime == "RANGE":
+        if last_adx < 18:
+            log.info(f"REJECTED {symbol_key} weak RANGE ADX ({last_adx:.1f})")
+            return None, None, None
+        required += 4
+
     if ENABLE_WIZARD_AI:
         wizard_pass, wizard_score = wizard_ai_confirmation(
             df, symbol_key, direction
@@ -1297,14 +1306,13 @@ def master_signal(symbol_key, df, session, trend, regime,
                 f"Score: {wizard_score}"
             )
             return None, None, None
-        best += int(wizard_score * 0.30)
+        best += int(wizard_score * 0.18)   # FIX 3: was 0.30
     else:
         wizard_score = 0
 
     sniper = ultra_sniper_score(df, symbol_key, direction)
-    best  += sniper
+    best  += int(sniper * 0.65)            # FIX 4: was full sniper
 
-    required = SESSION_THRESHOLDS.get(session, 16)
     if best < required:
         log.info(
             f"REJECTED {symbol_key} session score too low "
@@ -1317,11 +1325,16 @@ def master_signal(symbol_key, df, session, trend, regime,
             log.info(f"REJECTED {symbol_key} quantum volatility filter")
             return None, None, None
 
-    # FIX 6 — only apply false breakout filter in TREND/BREAKOUT regimes
-    if FALSE_BREAK_FILTER and regime in ["TREND", "BREAKOUT"]:
-        if not false_breakout_filter(df, direction):
-            log.info(f"REJECTED {symbol_key} false breakout filter")
-            return None, None, None
+    # PRECISION PATCH FIX 6 — full false breakout logic
+    if FALSE_BREAK_FILTER:
+        if regime == "RANGE":
+            if not break_of_structure(df, direction):
+                log.info(f"REJECTED {symbol_key} weak RANGE BOS")
+                return None, None, None
+        elif regime in ["TREND", "BREAKOUT"]:
+            if not false_breakout_filter(df, direction):
+                log.info(f"REJECTED {symbol_key} false breakout filter")
+                return None, None, None
 
     return direction, best, wizard_score
 
@@ -1459,7 +1472,6 @@ def process_symbol(symbol_key):
 
     df = add_ind(df)
 
-    # FIX 2 — relaxed post-indicator data check
     if df is None or len(df) < 80:
         log.info(f"REJECTED {symbol_key} insufficient data after indicators")
         return
@@ -1501,12 +1513,10 @@ def process_symbol(symbol_key):
     buy_score  += struct_buy_score
     sell_score += struct_sell_score
 
-    # Asia bonus
     if asia_mode:
         buy_score  += 1 if buy_score  >= 9 else 0
         sell_score += 1 if sell_score >= 9 else 0
 
-    # FIX 3 — relaxed Asia score thresholds
     if asia_mode:
         asia_spread_cap = MAX_SPREAD[symbol_key] * 1.05
 
@@ -1527,6 +1537,12 @@ def process_symbol(symbol_key):
         elif symbol_key in ["EUR/USD", "GBP/JPY"]:
             if max(buy_score, sell_score) < 7:
                 log.info(f"REJECTED {symbol_key} weak Asia forex score")
+                return
+
+        # PRECISION PATCH FIX 8 — Asian RANGE ADX gate
+        if regime == "RANGE":
+            if float(df.iloc[-1]["adx"]) < 20:
+                log.info(f"REJECTED {symbol_key} weak Asian range setup")
                 return
 
     log.info(
@@ -1627,7 +1643,7 @@ def main():
         f"🧠 Wizard AI Active\n"
         f"🛡 Asia Elite Precision\n"
         f"🧵 Thread Safe\n"
-        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — STABILITY PATCH v2"
+        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — PRECISION PATCH v1"
     )
 
     while True:
