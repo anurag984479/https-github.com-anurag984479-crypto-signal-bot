@@ -65,13 +65,13 @@ RR_PROFILE = {
 }
 
 # ============================================================
-# HYBRID SCALP SETTINGS
+# HYBRID SCALP SETTINGS — PATCHED
 # ============================================================
 SCALP_ADX_MIN      = 12
-SCALP_ADX_MAX      = 24
-SCALP_RSI_BUY_MAX  = 38
-SCALP_RSI_SELL_MIN = 62
-SCALP_MIN_SCORE    = 6
+SCALP_ADX_MAX      = 30       # upgraded from 24
+SCALP_RSI_BUY_MAX  = 42       # upgraded from 38
+SCALP_RSI_SELL_MIN = 58       # upgraded from 62
+SCALP_MIN_SCORE    = 5        # upgraded from 6
 SCALP_RR = {
     "XAU/USD": 2.0,
     "NAS100":  1.8,
@@ -1072,45 +1072,94 @@ def build_score(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score
 
 # ============================================================
-# SCALP SIGNAL ENGINE
+# SCALP SIGNAL ENGINE — PATCHED (Institutional Reversal)
 # ============================================================
 def scalp_signal(df, symbol_key):
+    if len(df) < 15:
+        return {}, {}, 0, 0
+
     last = df.iloc[-1]
 
     rsi = float(last["rsi"])
     adx = float(last["adx"])
     atr = float(last["atr"])
 
-    bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
-    bull_wick,  bear_wick  = detect_wick_rejection(df, atr, symbol_key)
     demand_zone, supply_zone = detect_supply_demand_zones(df)
+
+    bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
+    bull_wick, bear_wick   = detect_wick_rejection(df, atr, symbol_key)
 
     buy_score  = 0
     sell_score = 0
     buy_cond   = {}
     sell_cond  = {}
 
+    recent_lows  = df["low"].tail(8)
+    recent_highs = df["high"].tail(8)
+
+    support_touch    = float(last["low"])  <= float(recent_lows.min()) * 1.001
+    resistance_touch = float(last["high"]) >= float(recent_highs.max()) * 0.999
+
+    micro_bull_bos = float(last["close"]) > float(df.iloc[-2]["high"])
+    micro_bear_bos = float(last["close"]) < float(df.iloc[-2]["low"])
+
+    # =====================================================
+    # BUY REVERSAL SCALP
+    # =====================================================
     if SCALP_ADX_MIN <= adx <= SCALP_ADX_MAX:
 
-        # BUY SCALP conditions
         if rsi <= SCALP_RSI_BUY_MAX:
-            buy_score += 2; buy_cond["RSI_EXTREME"] = True
-        if bull_sweep:
-            buy_score += 2; buy_cond["SWEEP"] = True
-        if bull_wick:
-            buy_score += 2; buy_cond["WICK"] = True
-        if demand_zone and float(last["low"]) <= float(demand_zone) * 1.001:
-            buy_score += 3; buy_cond["DEMAND_ZONE"] = True
+            buy_score += 2
+            buy_cond["RSI_EXTREME"] = True
 
-        # SELL SCALP conditions
+        if support_touch:
+            buy_score += 3
+            buy_cond["SUPPORT_TOUCH"] = True
+
+        if demand_zone and float(last["low"]) <= float(demand_zone) * 1.002:
+            buy_score += 3
+            buy_cond["DEMAND_ZONE"] = True
+
+        if bull_sweep:
+            buy_score += 2
+            buy_cond["LIQUIDITY_SWEEP"] = True
+
+        if bull_wick:
+            buy_score += 2
+            buy_cond["WICK_REJECTION"] = True
+
+        if micro_bull_bos:
+            buy_score += 2
+            buy_cond["MICRO_BOS"] = True
+
+    # =====================================================
+    # SELL REVERSAL SCALP
+    # =====================================================
+    if SCALP_ADX_MIN <= adx <= SCALP_ADX_MAX:
+
         if rsi >= SCALP_RSI_SELL_MIN:
-            sell_score += 2; sell_cond["RSI_EXTREME"] = True
+            sell_score += 2
+            sell_cond["RSI_EXTREME"] = True
+
+        if resistance_touch:
+            sell_score += 3
+            sell_cond["RESISTANCE_TOUCH"] = True
+
+        if supply_zone and float(last["high"]) >= float(supply_zone) * 0.998:
+            sell_score += 3
+            sell_cond["SUPPLY_ZONE"] = True
+
         if bear_sweep:
-            sell_score += 2; sell_cond["SWEEP"] = True
+            sell_score += 2
+            sell_cond["LIQUIDITY_SWEEP"] = True
+
         if bear_wick:
-            sell_score += 2; sell_cond["WICK"] = True
-        if supply_zone and float(last["high"]) >= float(supply_zone) * 0.999:
-            sell_score += 3; sell_cond["SUPPLY_ZONE"] = True
+            sell_score += 2
+            sell_cond["WICK_REJECTION"] = True
+
+        if micro_bear_bos:
+            sell_score += 2
+            sell_cond["MICRO_BOS"] = True
 
     return buy_cond, sell_cond, buy_score, sell_score
 
@@ -1218,7 +1267,8 @@ def determine_best_direction(buy_score, sell_score):
     return "BUY" if buy_score >= sell_score else "SELL"
 
 def trade_quality(score):
-    if   score >= 30: return "GOD-TIER"
+    if   score >= 34: return "BLACKROCK-TIER"   # PATCHED: new tier added
+    elif score >= 30: return "GOD-TIER"
     elif score >= 26: return "ELITE"
     elif score >= 22: return "HIGH-PROBABILITY"
     return "STANDARD"
@@ -1287,7 +1337,7 @@ def lot_for_risk(price, sl, symbol_key, risk_multiplier=1.0):
     return round(max(0.01, min(lot, caps[symbol_key])), 3)
 
 # ============================================================
-# HYBRID MASTER SIGNAL ENGINE
+# HYBRID MASTER SIGNAL ENGINE — PATCHED
 # ============================================================
 def hybrid_master_signal(symbol_key, df, session, trend, regime,
                          buy, sell, buy_score, sell_score,
@@ -1309,17 +1359,54 @@ def hybrid_master_signal(symbol_key, df, session, trend, regime,
         best_scalp = max(scalp_buy_score, scalp_sell_score)
 
         if best_scalp >= SCALP_MIN_SCORE:
-            direction  = "BUY" if scalp_buy_score >= scalp_sell_score else "SELL"
-            best       = best_scalp + sniper
-            rr         = SCALP_RR[symbol_key]
 
-            log.info(
-                f"{symbol_key} SCALP MODE | Dir: {direction} | "
-                f"Score: {best_scalp} | Sniper: {sniper}"
+            direction = (
+                "BUY"
+                if scalp_buy_score >= scalp_sell_score
+                else "SELL"
             )
 
-            # Scalp uses relaxed Wizard check — optional pass
+            # =====================================================
+            # BONUS FOR HIGH-PROBABILITY REVERSAL CLUSTERS
+            # =====================================================
+            if direction == "BUY":
+                if (
+                    "SUPPORT_TOUCH" in scalp_buy_cond and
+                    "MICRO_BOS" in scalp_buy_cond
+                ):
+                    best_scalp += 2
+
+                if (
+                    "DEMAND_ZONE" in scalp_buy_cond and
+                    "WICK_REJECTION" in scalp_buy_cond
+                ):
+                    best_scalp += 2
+
+            elif direction == "SELL":
+                if (
+                    "RESISTANCE_TOUCH" in scalp_sell_cond and
+                    "MICRO_BOS" in scalp_sell_cond
+                ):
+                    best_scalp += 2
+
+                if (
+                    "SUPPLY_ZONE" in scalp_sell_cond and
+                    "WICK_REJECTION" in scalp_sell_cond
+                ):
+                    best_scalp += 2
+
+            best = best_scalp + sniper
+            rr   = SCALP_RR[symbol_key]
+
+            log.info(
+                f"{symbol_key} REVERSAL SCALP MODE | "
+                f"Dir: {direction} | "
+                f"Score: {best_scalp} | "
+                f"Sniper: {sniper}"
+            )
+
             wizard_score = 0
+
             if ENABLE_WIZARD_AI:
                 _, wizard_score = wizard_ai_confirmation(
                     df, symbol_key, direction
@@ -1328,12 +1415,10 @@ def hybrid_master_signal(symbol_key, df, session, trend, regime,
 
             if VOLATILITY_KILL:
                 if not quantum_volatility_ok(df):
-                    log.info(f"REJECTED {symbol_key} scalp volatility filter")
+                    log.info(
+                        f"REJECTED {symbol_key} scalp volatility filter"
+                    )
                     return None, None, None, None, None
-
-            scalp_cond = (
-                scalp_buy_cond if direction == "BUY" else scalp_sell_cond
-            )
 
             return direction, best, wizard_score, rr, "SCALP"
 
@@ -1386,7 +1471,7 @@ def hybrid_master_signal(symbol_key, df, session, trend, regime,
     return direction, best, wizard_score, rr, "TREND"
 
 # ============================================================
-# EXECUTE TRADE
+# EXECUTE TRADE — PATCHED
 # ============================================================
 def execute_trade(symbol_key, df, direction, best, wizard_score,
                   sniper_score, macro_trend, session, trend,
@@ -1425,12 +1510,40 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
     )
     sync_real_pnl()
 
-    checks    = buy if direction == "BUY" else sell
-    cond_text = "\n".join([f" {k}" for k, v in checks.items() if v])
+    # =====================================================
+    # REAL CONDITION DISPLAY — PATCHED
+    # =====================================================
+    if mode == "SCALP":
+        scalp_buy_cond, scalp_sell_cond, _, _ = scalp_signal(
+            df, symbol_key
+        )
+        checks = (
+            scalp_buy_cond
+            if direction == "BUY"
+            else scalp_sell_cond
+        )
+    else:
+        checks = (
+            buy
+            if direction == "BUY"
+            else sell
+        )
+
+    # =====================================================
+    # CONDITION TEXT — PATCHED
+    # =====================================================
+    cond_text = "\n".join(
+        [f"✅ {k}" for k, v in checks.items() if v]
+    )
+
     if demand_zone:
-        cond_text += "\n DEMAND_ZONE"
+        cond_text += "\n✅ DEMAND_ZONE"
+
     if supply_zone:
-        cond_text += "\n SUPPLY_ZONE"
+        cond_text += "\n✅ SUPPLY_ZONE"
+
+    if mode == "SCALP":
+        cond_text += "\n⚡ REVERSAL SCALP ENGINE"
 
     action_emoji = "📈" if direction == "BUY" else "📉"
     priority_tag = (
@@ -1438,9 +1551,14 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         if symbol_key in PRIORITY_MARKETS else ""
     )
 
+    # =====================================================
+    # MODE LABEL — PATCHED
+    # =====================================================
     mode_label = (
-        "SCALP ELITE"         if mode == "SCALP"
-        else "ASIA ELITE PRECISION" if asia_mode
+        "REVERSAL SCALP ELITE"
+        if mode == "SCALP"
+        else "ASIA ELITE PRECISION"
+        if asia_mode
         else "CORE INSTITUTIONAL"
     )
 
@@ -1692,9 +1810,9 @@ def main():
         f"🏆 Trade Quality Ranking\n"
         f"🧠 Wizard AI Active\n"
         f"🛡 Asia Elite Precision\n"
-        f"⚡ Hybrid Scalp Engine Active\n"
+        f"⚡ Reversal Scalp Engine Active\n"
         f"🧵 Thread Safe\n"
-        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — SCALP + TREND LIVE"
+        f"⚡ ULTIMATE HYBRID SUPREME 2026 ELITE — REVERSAL SCALP + TREND LIVE"
     )
 
     while True:
