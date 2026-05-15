@@ -156,7 +156,7 @@ SYMBOLS = [
 ATR_MULT               = 0.28
 VOL_MULT               = 1.10
 ADX_THRESHOLD          = 24
-SIGNAL_COOLDOWN        = 3600   # balanced cooldown
+SIGNAL_COOLDOWN        = 3600
 HTF_REFRESH            = 900
 MAX_DAILY_LOSS         = -300
 MAX_CONSECUTIVE_LOSSES = 3
@@ -168,7 +168,7 @@ AOX_FAST            = 5
 AOX_SLOW            = 34
 
 ENABLE_WIZARD_AI     = True
-WIZARD_MIN_SCORE     = 16      # FIX 1 — elite quality maintained
+WIZARD_MIN_SCORE     = 16
 WIZARD_VOLUME_MULT   = 1.5
 WIZARD_ADX_THRESHOLD = 25
 
@@ -236,7 +236,7 @@ MARKET_STRUCTURE = {
 }
 
 # ============================================================
-# FIX 3 — STRUCTURE SCORE THRESHOLDS
+# STRUCTURE SCORE THRESHOLDS
 # ============================================================
 MARKET_MIN_STRUCTURE_SCORE = {
     "XAU/USD": 5,
@@ -479,7 +479,7 @@ def loss_streak_lock():
     return False
 
 # ============================================================
-# DATA FETCHING
+# DATA FETCHING — FIX 1: FOREX / DATA STARVATION
 # ============================================================
 def fetch_yf(ticker, period="15d", interval="5m"):
     for attempt in range(3):
@@ -509,16 +509,17 @@ def fetch_yf(ticker, period="15d", interval="5m"):
     return None
 
 def fetch_market_data(symbol_key):
+    # FIX 1 — extended periods to prevent data starvation
     yf_sym = MARKETS[symbol_key]["yf"]
 
     if symbol_key in ["EUR/USD", "GBP/JPY"]:
-        df = fetch_yf(yf_sym, period="60d", interval="5m")
+        df = fetch_yf(yf_sym, period="90d", interval="5m")
     elif symbol_key == "XAU/USD":
-        df = fetch_yf(yf_sym, period="30d", interval="5m")
+        df = fetch_yf(yf_sym, period="45d", interval="5m")
     else:
-        df = fetch_yf(yf_sym, period="20d", interval="5m")
+        df = fetch_yf(yf_sym, period="30d", interval="5m")
 
-    if df is not None and len(df) > 180:
+    if df is not None and len(df) > 320:
         return df
     return None
 
@@ -920,17 +921,22 @@ def quantum_volatility_ok(df):
     return 0.75 <= ratio <= 2.10
 
 # ============================================================
-# FALSE BREAKOUT FILTER
+# FALSE BREAKOUT FILTER — FIX 4: RELAXED THRESHOLD
 # ============================================================
 def false_breakout_filter(df, direction):
     if len(df) < 3:
         return False
+
     last = df.iloc[-1]
     prev = df.iloc[-2]
+    atr  = float(df.iloc[-1]["atr"])
+
     if direction == "BUY":
-        return float(last["close"]) > float(prev["high"])
+        return float(last["close"]) > float(prev["high"]) - atr * 0.05
+
     if direction == "SELL":
-        return float(last["close"]) < float(prev["low"])
+        return float(last["close"]) < float(prev["low"]) + atr * 0.05
+
     return False
 
 # ============================================================
@@ -1062,7 +1068,7 @@ def build_score(df, trend, symbol_key):
     return buy, sell, buy_score, sell_score
 
 # ============================================================
-# WIZARD AI — FIX 1: WIZARD_MIN_SCORE = 16
+# WIZARD AI
 # ============================================================
 def wizard_ai_confirmation(df, symbol_key, direction):
     if len(df) < 250:
@@ -1421,8 +1427,8 @@ def process_symbol(symbol_key):
 
     df = add_ind(df)
 
-    # FIX 2 — relaxed data requirement for forex feeds
-    if df is None or len(df) < 100:
+    # FIX 2 — relaxed post-indicator data check
+    if df is None or len(df) < 80:
         log.info(f"REJECTED {symbol_key} insufficient data after indicators")
         return
 
@@ -1468,7 +1474,7 @@ def process_symbol(symbol_key):
         buy_score  += 1 if buy_score  >= 9 else 0
         sell_score += 1 if sell_score >= 9 else 0
 
-    # FIX 4 — balanced Asia Elite Filter
+    # FIX 3 — relaxed Asia score thresholds
     if asia_mode:
         asia_spread_cap = MAX_SPREAD[symbol_key] * 1.05
         if spread > asia_spread_cap:
@@ -1476,17 +1482,17 @@ def process_symbol(symbol_key):
             return
 
         if symbol_key == "XAU/USD":
-            if max(buy_score, sell_score) < 8:
+            if max(buy_score, sell_score) < 7:
                 log.info(f"REJECTED {symbol_key} weak Asia gold score")
                 return
 
         if symbol_key in ["NAS100", "SPX500"]:
-            if max(buy_score, sell_score) < 9:
+            if max(buy_score, sell_score) < 8:
                 log.info(f"REJECTED {symbol_key} weak Asia index score")
                 return
 
         if symbol_key in ["EUR/USD", "GBP/JPY"]:
-            if max(buy_score, sell_score) < 8:
+            if max(buy_score, sell_score) < 7:
                 log.info(f"REJECTED {symbol_key} weak Asia forex score")
                 return
 
@@ -1502,7 +1508,6 @@ def process_symbol(symbol_key):
 
     direction = determine_best_direction(buy_score, sell_score)
 
-    # FIX 5 — Gold allowed countertrend
     if symbol_key != "XAU/USD":
         if trend == "BULL" and direction == "SELL":
             log.info(f"REJECTED {symbol_key} countertrend SELL")
