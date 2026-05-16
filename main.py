@@ -183,7 +183,7 @@ MARKET_MIN_STRUCTURE_SCORE = {
     "XAU/USD": 5, "NAS100": 7, "EUR/USD": 5, "GBP/JPY": 5, "BTC/USD": 6,
 }
 
-ALLOWED_SESSIONS = ["London", "NY Killzone", "NY+London"]
+ALLOWED_SESSIONS = ["London", "NY Killzone", "NY+London", "24H"]
 
 ATR_MARKET_MULTIPLIER = {
     "XAU/USD": 1.05, "NAS100": 1.03, "EUR/USD": 0.95,
@@ -1199,14 +1199,19 @@ def get_signal_number(symbol_key, session):
 # SESSION FILTER
 # ============================================================
 def in_session(symbol_key):
-    h    = datetime.now(timezone.utc).hour
-    s, e = MARKETS[symbol_key]["sessions"]
-    if not (s <= h < e): return False, "Closed"
-    if 8  <= h < 11: return True, "London"
-    if 13 <= h < 15: return True, "NY Killzone"
-    if 14 <= h < 16: return True, "NY+London"
-    return False, "Closed"
+    h = datetime.now(timezone.utc).hour
 
+    if symbol_key == "BTC/USD":
+        return True, "24H"
+
+    if 8 <= h < 11:
+        return True, "London"
+    if 13 <= h < 15:
+        return True, "NY Killzone"
+    if 14 <= h < 16:
+        return True, "NY+London"
+
+    return False, "Closed"
 # ============================================================
 # SPREAD / VOLATILITY
 # ============================================================
