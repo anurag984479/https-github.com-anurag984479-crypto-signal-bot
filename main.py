@@ -1,10 +1,9 @@
-
-
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-ICT-SUPREME-2026-ELITE
 # XAU/USD + NAS100 + EUR/USD + GBP/JPY + BTC/USD
 # ICT CONCEPT ENGINE — MSS + FVG + OB + MTF TREND
+# PATCHED: RR filter, score filter, Telegram fix, TP validation
 # ============================================================
 
 import gc
@@ -29,8 +28,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("ULTIMATE-ICT-2026")
 
-TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
-CHAT_ID = os.getenv("CHAT_ID", "8783763018")
+TOKEN   = os.getenv("TOKEN",   "")
+CHAT_ID = os.getenv("CHAT_ID", "")
 
 session_http = requests.Session()
 signal_lock  = Lock()
@@ -58,7 +57,6 @@ SCALP_ADX_MIN      = 14
 SCALP_ADX_MAX      = 26
 SCALP_RSI_BUY_MAX  = 38
 SCALP_RSI_SELL_MIN = 62
-SCALP_MIN_SCORE    = 8
 SCALP_RR = {
     "XAU/USD": 2.0, "NAS100": 1.8, "EUR/USD": 1.8,
     "GBP/JPY": 2.0, "BTC/USD": 2.0,
@@ -118,9 +116,8 @@ AOX_FAST               = 5
 AOX_SLOW               = 34
 
 ENABLE_WIZARD_AI     = True
-WIZARD_MIN_SCORE     = 18
-WIZARD_VOLUME_MULT   = 1.5
 WIZARD_ADX_THRESHOLD = 25
+WIZARD_VOLUME_MULT   = 1.5
 
 CORRELATION_BLOCK   = True
 MAX_OPEN_CORRELATED = 2
@@ -136,15 +133,23 @@ RANGE_MIN_SCORE = 9
 TREND_MIN_SCORE = 10
 
 # ============================================================
+# PATCH 2 — GLOBAL FILTERS (raised thresholds)
+# ============================================================
+MIN_RR_ALLOWED          = 2.0
+MIN_TOTAL_SCORE         = 18
+WIZARD_MIN_SCORE        = 20
+SCALP_MIN_SCORE         = 10
+BTC_BREAKDOWN_MIN_SCORE = 12
+BTC_REVERSAL_MIN_SCORE  = 12
+
+# ============================================================
 # BTC AGGRESSIVE MODE SETTINGS
 # ============================================================
 ENABLE_BTC_AGGRESSIVE_REVERSAL = True
-BTC_REVERSAL_MIN_SCORE         = 10
-BTC_REVERSAL_RR                = 3.5
-
 ENABLE_BTC_BREAKDOWN_MODE      = True
-BTC_BREAKDOWN_MIN_SCORE        = 9
-BTC_BREAKDOWN_RR               = 3.2
+
+BTC_REVERSAL_RR  = 3.5
+BTC_BREAKDOWN_RR = 3.2
 
 MARKET_STRUCTURE = {
     "XAU/USD": {
@@ -308,14 +313,17 @@ def log_signal(symbol, direction, score, rr, entry, sl, tp,
             log.error(f"Backup log failed: {e}")
 
 # ============================================================
-# TELEGRAM
+# TELEGRAM — PATCH 3: removed parse_mode to fix formatting errors
 # ============================================================
 def send_telegram(msg):
     for attempt in range(3):
         try:
             r = session_http.post(
                 f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"},
+                json={
+                    "chat_id": CHAT_ID,
+                    "text": msg
+                },
                 timeout=8
             )
             if r.status_code != 200:
@@ -1212,6 +1220,7 @@ def in_session(symbol_key):
         return True, "NY+London"
 
     return False, "Closed"
+
 # ============================================================
 # SPREAD / VOLATILITY
 # ============================================================
@@ -1322,6 +1331,7 @@ def smart_tp_target(df, symbol_key, direction, entry, sl):
 
 # ============================================================
 # ICT SL PLACEMENT + SMART TP
+# PATCH 6: returns None values when RR is below minimum
 # ============================================================
 def ict_calc_levels(price, atr, symbol_key, df, direction, rr):
     min_sl   = MARKETS[symbol_key]["min_sl"]
@@ -1353,6 +1363,10 @@ def ict_calc_levels(price, atr, symbol_key, df, direction, rr):
         tp = smart_tp_target(df, symbol_key, direction, price, sl)
         rr = round(abs(tp - price) / abs(price - sl), 2)
 
+    # PATCH 6: Reject if RR is below minimum after calculation
+    if rr < MIN_RR_ALLOWED:
+        return None, None, None, rr
+
     return round(sl, decimals), round(tp, decimals), round(sl_dist, decimals), rr
 
 # ============================================================
@@ -1372,10 +1386,22 @@ def lot_for_risk(price, sl, symbol_key, risk_multiplier=1.0):
 
 # ============================================================
 # EXECUTE TRADE
+# PATCH 4: Hard RR filter after level calculation
+# PATCH 5: Minimum score filter
+# PATCH 7: Safe execution — abort if SL/TP is None
+# PATCH 8: Telegram message without Markdown formatting
 # ============================================================
 def execute_trade(symbol_key, df, direction, best, wizard_score,
                   sniper_score, macro_trend, session, trend,
                   regime, conditions, source, rr, mtf_trends):
+
+    # PATCH 5 — minimum score filter
+    if best < MIN_TOTAL_SCORE:
+        log.info(
+            f"REJECTED {symbol_key} score too weak "
+            f"({best} < {MIN_TOTAL_SCORE})"
+        )
+        return
 
     price = float(df.iloc[-1]["close"])
     atr   = float(df.iloc[-1]["atr"])
@@ -1390,6 +1416,19 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
 
     sl, tp, sl_dist, rr = ict_calc_levels(price, atr, symbol_key, df, direction, rr)
 
+    # PATCH 7 — abort if ict_calc_levels returned None (RR too low inside calc)
+    if sl is None or tp is None:
+        log.info(f"REJECTED {symbol_key} TP/SL invalid (RR too low inside calc: 1:{rr})")
+        return
+
+    # PATCH 4 — hard RR filter after level calculation
+    if rr < MIN_RR_ALLOWED:
+        log.info(
+            f"REJECTED {symbol_key} RR too low "
+            f"(1:{rr} < 1:{MIN_RR_ALLOWED})"
+        )
+        return
+
     risk_mult      = adaptive_risk(session)
     lot            = lot_for_risk(price, sl, symbol_key, risk_mult)
     quality        = trade_quality(best)
@@ -1401,9 +1440,9 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
                session, regime, timeframe, signal_type)
     sync_real_pnl()
 
-    cond_text    = "\n".join([f"✅ {k}" for k, v in conditions.items() if v])
-    action_emoji = "📈" if direction == "BUY" else "📉"
-    priority_tag = "🔱 *PRIORITY MARKET*\n" if symbol_key in PRIORITY_MARKETS else ""
+    cond_text    = "\n".join([f"[OK] {k}" for k, v in conditions.items() if v])
+    action_emoji = "UP" if direction == "BUY" else "DN"
+    priority_tag = "[PRIORITY MARKET]\n" if symbol_key in PRIORITY_MARKETS else ""
     mtf_str      = " | ".join([f"{tf}: {tr[:4]}" for tf, tr in mtf_trends.items()])
 
     tp1 = (
@@ -1412,41 +1451,41 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         else round(price - (price - tp) * 0.5, dec)
     )
 
+    # PATCH 8 — plain text message (no Markdown asterisks or underscores)
     msg = (
-        f"🎯 *{SYSTEM_VERSION}* | ICT SNIPER\n"
-        f"*{MARKETS[symbol_key]['mt5']}* | "
-        f"⭐⭐⭐⭐⭐ {MARKETS[symbol_key]['tier']}\n"
+        f"ICT SNIPER | {SYSTEM_VERSION}\n"
+        f"{MARKETS[symbol_key]['mt5']} | {MARKETS[symbol_key]['tier']}\n"
         f"{priority_tag}\n"
-        f"🔥 *Action:* {direction} {action_emoji}\n"
-        f"🎯 *Signal #:* {signal_num}\n"
-        f"📍 *Entry Type:* {entry_type}\n"
-        f"🚀 *Signal Type:* {signal_type}\n"
-        f"⭐ *Total Score:* {best}\n"
-        f"🏆 *Trade Quality:* {quality}\n"
-        f"🌍 *Macro Trend:* {macro_trend}\n"
-        f"🧠 *MTF Trend:* {mtf_str}\n"
-        f"🎯 *Sniper Score:* {sniper_score}\n"
-        f"🧠 *Wizard AI Score:* {wizard_score if ENABLE_WIZARD_AI else 'OFF'}\n"
-        f"🧠 *Regime:* {regime}\n"
-        f"⏱ *Timeframe:* {timeframe}\n"
-        f"📊 *Market Bias:* {MARKETS[symbol_key]['bias']}\n\n"
-        f"📍 *Entry:* {price:,.{dec}f}\n"
-        f"🛑 *SL:* {sl:,.{dec}f}\n"
-        f"🎯 *TP1 (1:1):* {tp1:,.{dec}f}\n"
-        f"🎯 *Smart TP (1:{rr}):* {tp:,.{dec}f}\n"
-        f"📊 *Actual RR:* 1:{rr}\n"
-        f"🎯 *TP Model:* Previous Structure Liquidity Target\n\n"
-        f"📈 *RSI:* {rsi:.1f}\n"
-        f"📉 *ADX:* {adx:.1f}\n"
-        f"🌍 *Trend:* {trend}\n"
-        f"⏰ *Session:* {session}\n"
-        f"🧠 *Mode:* ICT CONCEPT ENGINE\n"
-        f"📡 *Source:* {source}\n\n"
-        f"💵 *Lot:* {lot}\n\n"
-        f"✅ *ICT Conditions:*\n"
+        f"Action: {direction} [{action_emoji}]\n"
+        f"Signal #: {signal_num}\n"
+        f"Entry Type: {entry_type}\n"
+        f"Signal Type: {signal_type}\n"
+        f"Total Score: {best}\n"
+        f"Trade Quality: {quality}\n"
+        f"Macro Trend: {macro_trend}\n"
+        f"MTF Trend: {mtf_str}\n"
+        f"Sniper Score: {sniper_score}\n"
+        f"Wizard AI Score: {wizard_score if ENABLE_WIZARD_AI else 'OFF'}\n"
+        f"Regime: {regime}\n"
+        f"Timeframe: {timeframe}\n"
+        f"Market Bias: {MARKETS[symbol_key]['bias']}\n\n"
+        f"Entry: {price:,.{dec}f}\n"
+        f"SL: {sl:,.{dec}f}\n"
+        f"TP1 (1:1): {tp1:,.{dec}f}\n"
+        f"Smart TP (1:{rr}): {tp:,.{dec}f}\n"
+        f"Actual RR: 1:{rr}\n"
+        f"TP Model: Previous Structure Liquidity Target\n\n"
+        f"RSI: {rsi:.1f}\n"
+        f"ADX: {adx:.1f}\n"
+        f"Trend: {trend}\n"
+        f"Session: {session}\n"
+        f"Mode: ICT CONCEPT ENGINE\n"
+        f"Source: {source}\n\n"
+        f"Lot: {lot}\n\n"
+        f"ICT Conditions:\n"
         f"{cond_text}\n\n"
-        f"🛡 *MSS + FVG + OB ENGINE ACTIVE*\n"
-        f"⚡ *ULTIMATE ICT SUPREME — 2026 ELITE*"
+        f"MSS + FVG + OB ENGINE ACTIVE\n"
+        f"ULTIMATE ICT SUPREME - 2026 ELITE"
     )
 
     send_telegram(msg)
@@ -1462,16 +1501,10 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
 def process_symbol(symbol_key):
     log.info(f"Scanning {symbol_key}")
 
-    # ============================================================
-    # DAILY SIGNAL CAP
-    # ============================================================
     if _daily_signal_count[symbol_key] >= MAX_SIGNALS_PER_DAY[symbol_key]:
         log.info(f"REJECTED {symbol_key} daily cap reached")
         return
 
-    # ============================================================
-    # CIRCUIT BREAKERS
-    # ============================================================
     if weekend_block(symbol_key):
         log.info(f"REJECTED {symbol_key} weekend block active")
         return
@@ -1487,9 +1520,6 @@ def process_symbol(symbol_key):
     watchdog()
     rotate_log()
 
-    # ============================================================
-    # SESSION FILTER
-    # ============================================================
     ok, session = in_session(symbol_key)
 
     if not ok:
@@ -1500,16 +1530,10 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} session not allowed ({session})")
         return
 
-    # ============================================================
-    # ECONOMIC NEWS FILTER
-    # ============================================================
     if economic_news_block():
         log.info(f"REJECTED {symbol_key} economic news block active")
         return
 
-    # ============================================================
-    # MARKET DATA FETCH
-    # ============================================================
     df, source = get_entry_data(symbol_key)
 
     if df is None:
@@ -1520,18 +1544,12 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} insufficient raw market data ({len(df)} candles)")
         return
 
-    # ============================================================
-    # SPREAD FILTER
-    # ============================================================
     spread = get_spread(df)
 
     if spread_too_high(symbol_key, spread):
         log.info(f"REJECTED {symbol_key} spread too high ({spread:.6f})")
         return
 
-    # ============================================================
-    # INDICATOR PROCESSING
-    # ============================================================
     df = add_ind(df)
 
     if df is None:
@@ -1542,9 +1560,6 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} insufficient indicator data ({len(df)} candles)")
         return
 
-    # ============================================================
-    # VOLATILITY FILTER
-    # ============================================================
     if volatility_danger(df, symbol_key):
         log.info(f"REJECTED {symbol_key} volatility danger")
         return
@@ -1552,9 +1567,6 @@ def process_symbol(symbol_key):
     price = float(df.iloc[-1]["close"])
     atr   = float(df.iloc[-1]["atr"])
 
-    # ============================================================
-    # PRICE VALIDATION
-    # ============================================================
     if price <= 0:
         log.info(f"REJECTED {symbol_key} invalid price ({price})")
         return
@@ -1563,9 +1575,6 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} price out of range ({price})")
         return
 
-    # ============================================================
-    # TREND / REGIME
-    # ============================================================
     trend  = get_trend(symbol_key)
     regime = detect_market_regime(df)
 
@@ -1579,14 +1588,8 @@ def process_symbol(symbol_key):
 
     mtf_trends = ict_mtf_trend(df)
 
-    # ============================================================
-    # PRIMARY ICT SIGNAL ENGINE
-    # ============================================================
     direction, ict_score, conditions = ict_signal_engine(df, symbol_key, session)
 
-    # ============================================================
-    # BTC AGGRESSIVE REVERSAL
-    # ============================================================
     if (
         (direction is None or ict_score == 0)
         and symbol_key == "BTC/USD"
@@ -1595,9 +1598,6 @@ def process_symbol(symbol_key):
         log.info(f"{symbol_key} primary ICT failed — checking BTC aggressive reversal")
         direction, ict_score, conditions = btc_aggressive_reversal(df, symbol_key)
 
-    # ============================================================
-    # BTC BEARISH BREAKDOWN
-    # ============================================================
     if (
         (direction is None or ict_score == 0)
         and symbol_key == "BTC/USD"
@@ -1606,16 +1606,10 @@ def process_symbol(symbol_key):
         log.info(f"{symbol_key} reversal failed — checking BTC bearish breakdown")
         direction, ict_score, conditions = btc_bearish_breakdown(df, symbol_key)
 
-    # ============================================================
-    # CONTINUATION RETEST FALLBACK
-    # ============================================================
     if direction is None or ict_score == 0:
         log.info(f"{symbol_key} no primary setup — checking continuation retest")
         direction, ict_score, conditions = detect_continuation_retest(df, symbol_key)
 
-    # ============================================================
-    # FINAL SIGNAL FAILURE
-    # ============================================================
     if direction is None or ict_score == 0:
         log.info(f"REJECTED {symbol_key} no valid ICT / BTC / continuation setup")
         return
@@ -1628,9 +1622,6 @@ def process_symbol(symbol_key):
         f"Session: {session}"
     )
 
-    # ============================================================
-    # MINIMUM SCORE FILTER
-    # ============================================================
     if (
         "FVG_RETEST" in conditions
         or "OB_RETEST" in conditions
@@ -1649,16 +1640,10 @@ def process_symbol(symbol_key):
         )
         return
 
-    # ============================================================
-    # VOLATILITY KILL SWITCH
-    # ============================================================
     if VOLATILITY_KILL and not quantum_volatility_ok(df):
         log.info(f"REJECTED {symbol_key} volatility kill filter")
         return
 
-    # ============================================================
-    # FALSE BREAKOUT FILTER
-    # ============================================================
     if (
         FALSE_BREAK_FILTER
         and regime in ["TREND", "BREAKOUT"]
@@ -1668,9 +1653,6 @@ def process_symbol(symbol_key):
             log.info(f"REJECTED {symbol_key} false breakout filter")
             return
 
-    # ============================================================
-    # WIZARD AI
-    # ============================================================
     wizard_score = 0
 
     if ENABLE_WIZARD_AI:
@@ -1692,15 +1674,9 @@ def process_symbol(symbol_key):
 
         ict_score += int(wizard_score * 0.25)
 
-    # ============================================================
-    # ULTRA SNIPER SCORE
-    # ============================================================
     sniper_score = ultra_sniper_score(df, symbol_key, direction)
     ict_score   += int(sniper_score * 0.30)
 
-    # ============================================================
-    # BTC SCORE BOOSTER
-    # ============================================================
     if symbol_key == "BTC/USD":
         if "BTC_BEAR_FVG"        in conditions: ict_score += 2
         if "BTC_BEAR_OB"         in conditions: ict_score += 2
@@ -1708,9 +1684,6 @@ def process_symbol(symbol_key):
         if "BTC_VOLUME_SPIKE"    in conditions: ict_score += 2
         if "BTC_LIQUIDITY_SWEEP" in conditions: ict_score += 2
 
-    # ============================================================
-    # COUNTERTREND FILTER
-    # ============================================================
     if regime != "RANGE" and symbol_key not in ["XAU/USD", "BTC/USD"]:
         if trend == "BULL" and direction == "SELL":
             log.info(f"REJECTED {symbol_key} countertrend SELL blocked")
@@ -1719,25 +1692,16 @@ def process_symbol(symbol_key):
             log.info(f"REJECTED {symbol_key} countertrend BUY blocked")
             return
 
-    # ============================================================
-    # CORRELATION BLOCKER
-    # ============================================================
     if correlated_signal_block(symbol_key):
         log.info(f"REJECTED {symbol_key} correlation blocker")
         return
 
-    # ============================================================
-    # DUPLICATE FILTER
-    # ============================================================
     if duplicate_signal(symbol_key, direction):
         log.info(f"REJECTED {symbol_key} duplicate signal")
         return
 
     now = time.time()
 
-    # ============================================================
-    # COOLDOWN FILTER
-    # ============================================================
     symbol_cooldown = 1800 if symbol_key == "BTC/USD" else SIGNAL_COOLDOWN
 
     if now - _signal_sent[symbol_key] < symbol_cooldown:
@@ -1745,9 +1709,6 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} cooldown active ({remaining}s remaining)")
         return
 
-    # ============================================================
-    # RR ENGINE
-    # ============================================================
     if symbol_key == "BTC/USD":
         if "BTC_BEAR_FVG" in conditions or "BTC_BEAR_OB" in conditions:
             rr = BTC_BREAKDOWN_RR
@@ -1758,9 +1719,6 @@ def process_symbol(symbol_key):
     else:
         rr = get_dynamic_rr(symbol_key, regime)
 
-    # ============================================================
-    # FINAL SIGNAL EXECUTION
-    # ============================================================
     with signal_lock:
         _signal_sent[symbol_key]        = now
         _daily_signal_count[symbol_key] += 1
@@ -1785,35 +1743,30 @@ def process_symbol(symbol_key):
 def main():
     log.info(f"{SYSTEM_VERSION} STARTED")
     send_telegram(
-        f"🚀 *{SYSTEM_VERSION} LIVE*\n\n"
-        f"📊 *Markets Active:*\n"
-        f"🥇 XAU/USD\n📈 NAS100\n💶 EUR/USD\n💷 GBP/JPY\n₿ BTC/USD\n\n"
-        f"🔱 All Markets Priority\n\n"
-        f"🧠 *ICT ENGINE ACTIVE:*\n"
-        f"✅ Market Structure Shift (MSS)\n"
-        f"✅ Fair Value Gap (FVG)\n"
-        f"✅ Order Block (OB)\n"
-        f"✅ Liquidity Sweep\n"
-        f"✅ MTF Trend 5M/1H/4H/12H\n"
-        f"✅ Premium & Discount Zones\n"
-        f"✅ ICT SL Placement (OB/FVG based)\n"
-        f"✅ Smart TP — Structure Liquidity Target\n"
-        f"✅ Dynamic RR (auto-calculated)\n"
-        f"✅ Continuation Retest Engine\n"
-        f"✅ BTC Aggressive Reversal Mode\n"
-        f"✅ BTC Bearish Breakdown Mode\n"
-        f"✅ BTC Score Booster\n"
-        f"✅ BTC False Breakout Exempt\n"
-        f"✅ BTC Countertrend Exempt\n"
-        f"✅ BTC Wizard AI Bypass\n"
-        f"✅ BTC Dynamic Cooldown\n"
-        f"✅ Wizard AI Filter\n"
-        f"✅ Ultra Sniper Score\n"
-        f"✅ WaveTrend Confirmation\n"
-        f"🔒 Correlation Blocker\n"
-        f"🚫 False Breakout Filter\n"
-        f"🧵 Thread Safe\n"
-        f"⚡ ULTIMATE ICT SUPREME 2026 ELITE — LIVE"
+        f"{SYSTEM_VERSION} LIVE\n\n"
+        f"Markets Active:\n"
+        f"XAU/USD | NAS100 | EUR/USD | GBP/JPY | BTC/USD\n\n"
+        f"ICT ENGINE ACTIVE:\n"
+        f"[OK] Market Structure Shift (MSS)\n"
+        f"[OK] Fair Value Gap (FVG)\n"
+        f"[OK] Order Block (OB)\n"
+        f"[OK] Liquidity Sweep\n"
+        f"[OK] MTF Trend 5M/1H/4H/12H\n"
+        f"[OK] Premium & Discount Zones\n"
+        f"[OK] ICT SL Placement (OB/FVG based)\n"
+        f"[OK] Smart TP - Structure Liquidity Target\n"
+        f"[OK] Dynamic RR (auto-calculated)\n"
+        f"[OK] Continuation Retest Engine\n"
+        f"[OK] BTC Aggressive Reversal Mode\n"
+        f"[OK] BTC Bearish Breakdown Mode\n"
+        f"[OK] BTC Score Booster\n"
+        f"[OK] Wizard AI Filter (min score: {WIZARD_MIN_SCORE})\n"
+        f"[OK] Min RR Filter: 1:{MIN_RR_ALLOWED}\n"
+        f"[OK] Min Total Score: {MIN_TOTAL_SCORE}\n"
+        f"[OK] Ultra Sniper Score\n"
+        f"[OK] Correlation Blocker\n"
+        f"[OK] False Breakout Filter\n"
+        f"ULTIMATE ICT SUPREME 2026 ELITE - LIVE"
     )
 
     while True:
