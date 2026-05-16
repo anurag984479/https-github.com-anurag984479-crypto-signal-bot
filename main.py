@@ -1,4 +1,4 @@
-
+This is a clean rewrite of process_symbol with better logging throughout. Here’s the full updated bot with this version replacing the old one:
 
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
@@ -1462,87 +1462,175 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
 def process_symbol(symbol_key):
     log.info(f"Scanning {symbol_key}")
 
+    # ============================================================
+    # DAILY SIGNAL CAP
+    # ============================================================
     if _daily_signal_count[symbol_key] >= MAX_SIGNALS_PER_DAY[symbol_key]:
-        log.info(f"REJECTED {symbol_key} daily cap reached"); return
+        log.info(f"REJECTED {symbol_key} daily cap reached")
+        return
 
-    if weekend_block(symbol_key): return
-    if daily_loss_lock():         return
-    if loss_streak_lock():        return
+    # ============================================================
+    # CIRCUIT BREAKERS
+    # ============================================================
+    if weekend_block(symbol_key):
+        log.info(f"REJECTED {symbol_key} weekend block active")
+        return
+
+    if daily_loss_lock():
+        log.info(f"REJECTED {symbol_key} daily loss lock active")
+        return
+
+    if loss_streak_lock():
+        log.info(f"REJECTED {symbol_key} consecutive loss lock active")
+        return
 
     watchdog()
     rotate_log()
 
+    # ============================================================
+    # SESSION FILTER
+    # ============================================================
     ok, session = in_session(symbol_key)
-    if not ok: return
+
+    if not ok:
+        log.info(f"REJECTED {symbol_key} outside active trading session")
+        return
 
     if session not in ALLOWED_SESSIONS:
-        log.info(f"REJECTED {symbol_key} outside session ({session})"); return
+        log.info(f"REJECTED {symbol_key} session not allowed ({session})")
+        return
 
-    if economic_news_block(): return
+    # ============================================================
+    # ECONOMIC NEWS FILTER
+    # ============================================================
+    if economic_news_block():
+        log.info(f"REJECTED {symbol_key} economic news block active")
+        return
 
+    # ============================================================
+    # MARKET DATA FETCH
+    # ============================================================
     df, source = get_entry_data(symbol_key)
-    if df is None or len(df) < 100: return
 
+    if df is None:
+        log.info(f"REJECTED {symbol_key} no market data retrieved")
+        return
+
+    if len(df) < 100:
+        log.info(f"REJECTED {symbol_key} insufficient raw market data ({len(df)} candles)")
+        return
+
+    # ============================================================
+    # SPREAD FILTER
+    # ============================================================
     spread = get_spread(df)
+
     if spread_too_high(symbol_key, spread):
-        log.info(f"REJECTED {symbol_key} spread {spread:.6f}"); return
+        log.info(f"REJECTED {symbol_key} spread too high ({spread:.6f})")
+        return
 
+    # ============================================================
+    # INDICATOR PROCESSING
+    # ============================================================
     df = add_ind(df)
-    if df is None or len(df) < 80:
-        log.info(f"REJECTED {symbol_key} insufficient data after indicators"); return
 
+    if df is None:
+        log.info(f"REJECTED {symbol_key} indicator processing failed")
+        return
+
+    if len(df) < 80:
+        log.info(f"REJECTED {symbol_key} insufficient indicator data ({len(df)} candles)")
+        return
+
+    # ============================================================
+    # VOLATILITY FILTER
+    # ============================================================
     if volatility_danger(df, symbol_key):
-        log.info(f"REJECTED {symbol_key} extreme volatility danger"); return
+        log.info(f"REJECTED {symbol_key} volatility danger")
+        return
 
     price = float(df.iloc[-1]["close"])
     atr   = float(df.iloc[-1]["atr"])
 
-    if price <= 0: return
-    if not (MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]):
-        log.info(f"REJECTED {symbol_key} price out of range"); return
+    # ============================================================
+    # PRICE VALIDATION
+    # ============================================================
+    if price <= 0:
+        log.info(f"REJECTED {symbol_key} invalid price ({price})")
+        return
 
+    if not (MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]):
+        log.info(f"REJECTED {symbol_key} price out of range ({price})")
+        return
+
+    # ============================================================
+    # TREND / REGIME
+    # ============================================================
     trend  = get_trend(symbol_key)
     regime = detect_market_regime(df)
 
     macro_trend = (
-        "BULL"    if weekly_trend(df, "BUY")  and daily_trend(df, "BUY")
-        else "BEAR" if weekly_trend(df, "SELL") and daily_trend(df, "SELL")
+        "BULL"
+        if weekly_trend(df, "BUY") and daily_trend(df, "BUY")
+        else "BEAR"
+        if weekly_trend(df, "SELL") and daily_trend(df, "SELL")
         else "NEUTRAL"
     )
 
     mtf_trends = ict_mtf_trend(df)
 
-    # Primary ICT signal engine
+    # ============================================================
+    # PRIMARY ICT SIGNAL ENGINE
+    # ============================================================
     direction, ict_score, conditions = ict_signal_engine(df, symbol_key, session)
 
-    # BTC Aggressive BUY Reversal PRIORITY
+    # ============================================================
+    # BTC AGGRESSIVE REVERSAL
+    # ============================================================
     if (
         (direction is None or ict_score == 0)
         and symbol_key == "BTC/USD"
         and ENABLE_BTC_AGGRESSIVE_REVERSAL
     ):
+        log.info(f"{symbol_key} primary ICT failed — checking BTC aggressive reversal")
         direction, ict_score, conditions = btc_aggressive_reversal(df, symbol_key)
 
-    # BTC Aggressive SELL Breakdown PRIORITY
+    # ============================================================
+    # BTC BEARISH BREAKDOWN
+    # ============================================================
     if (
         (direction is None or ict_score == 0)
         and symbol_key == "BTC/USD"
         and ENABLE_BTC_BREAKDOWN_MODE
     ):
+        log.info(f"{symbol_key} reversal failed — checking BTC bearish breakdown")
         direction, ict_score, conditions = btc_bearish_breakdown(df, symbol_key)
 
-    # Continuation retest fallback LAST
+    # ============================================================
+    # CONTINUATION RETEST FALLBACK
+    # ============================================================
     if direction is None or ict_score == 0:
+        log.info(f"{symbol_key} no primary setup — checking continuation retest")
         direction, ict_score, conditions = detect_continuation_retest(df, symbol_key)
 
-    # Final rejection
+    # ============================================================
+    # FINAL SIGNAL FAILURE
+    # ============================================================
     if direction is None or ict_score == 0:
-        log.info(f"REJECTED {symbol_key} no valid ICT / reversal / breakdown setup")
+        log.info(f"REJECTED {symbol_key} no valid ICT / BTC / continuation setup")
         return
 
-    log.info(f"{symbol_key} ICT Signal | Dir: {direction} | "
-             f"Score: {ict_score} | Regime: {regime} | Session: {session}")
+    log.info(
+        f"{symbol_key} SIGNAL DETECTED | "
+        f"Direction: {direction} | "
+        f"ICT Score: {ict_score} | "
+        f"Regime: {regime} | "
+        f"Session: {session}"
+    )
 
+    # ============================================================
+    # MINIMUM SCORE FILTER
+    # ============================================================
     if (
         "FVG_RETEST" in conditions
         or "OB_RETEST" in conditions
@@ -1553,13 +1641,24 @@ def process_symbol(symbol_key):
         min_ict = 10
     else:
         min_ict = SESSION_THRESHOLDS.get(session, 16)
+
     if ict_score < min_ict:
-        log.info(f"REJECTED {symbol_key} ICT score {ict_score} < {min_ict}"); return
+        log.info(
+            f"REJECTED {symbol_key} ICT score below threshold "
+            f"({ict_score} < {min_ict})"
+        )
+        return
 
+    # ============================================================
+    # VOLATILITY KILL SWITCH
+    # ============================================================
     if VOLATILITY_KILL and not quantum_volatility_ok(df):
-        log.info(f"REJECTED {symbol_key} volatility filter"); return
+        log.info(f"REJECTED {symbol_key} volatility kill filter")
+        return
 
-    # Patch 10 — BTC false breakout exemption
+    # ============================================================
+    # FALSE BREAKOUT FILTER
+    # ============================================================
     if (
         FALSE_BREAK_FILTER
         and regime in ["TREND", "BREAKOUT"]
@@ -1569,8 +1668,11 @@ def process_symbol(symbol_key):
             log.info(f"REJECTED {symbol_key} false breakout filter")
             return
 
-    # Patch 13 — BTC Wizard AI bypass
+    # ============================================================
+    # WIZARD AI
+    # ============================================================
     wizard_score = 0
+
     if ENABLE_WIZARD_AI:
         wizard_pass, wizard_score = wizard_ai_confirmation(df, symbol_key, direction)
 
@@ -1582,17 +1684,23 @@ def process_symbol(symbol_key):
                 or "BTC_BOS_SELL"     in conditions
             ):
                 wizard_pass = True
+                log.info(f"{symbol_key} Wizard AI bypass activated")
 
         if not wizard_pass:
-            log.info(f"REJECTED {symbol_key} Wizard AI | Score: {wizard_score}")
+            log.info(f"REJECTED {symbol_key} Wizard AI failed (Score: {wizard_score})")
             return
 
         ict_score += int(wizard_score * 0.25)
 
+    # ============================================================
+    # ULTRA SNIPER SCORE
+    # ============================================================
     sniper_score = ultra_sniper_score(df, symbol_key, direction)
     ict_score   += int(sniper_score * 0.30)
 
-    # BTC aggressive score booster
+    # ============================================================
+    # BTC SCORE BOOSTER
+    # ============================================================
     if symbol_key == "BTC/USD":
         if "BTC_BEAR_FVG"        in conditions: ict_score += 2
         if "BTC_BEAR_OB"         in conditions: ict_score += 2
@@ -1600,25 +1708,46 @@ def process_symbol(symbol_key):
         if "BTC_VOLUME_SPIKE"    in conditions: ict_score += 2
         if "BTC_LIQUIDITY_SWEEP" in conditions: ict_score += 2
 
-    # Patch 11 — BTC countertrend exemption
+    # ============================================================
+    # COUNTERTREND FILTER
+    # ============================================================
     if regime != "RANGE" and symbol_key not in ["XAU/USD", "BTC/USD"]:
         if trend == "BULL" and direction == "SELL":
-            log.info(f"REJECTED {symbol_key} countertrend SELL"); return
+            log.info(f"REJECTED {symbol_key} countertrend SELL blocked")
+            return
         if trend == "BEAR" and direction == "BUY":
-            log.info(f"REJECTED {symbol_key} countertrend BUY"); return
+            log.info(f"REJECTED {symbol_key} countertrend BUY blocked")
+            return
 
-    if correlated_signal_block(symbol_key): return
-    if duplicate_signal(symbol_key, direction): return
+    # ============================================================
+    # CORRELATION BLOCKER
+    # ============================================================
+    if correlated_signal_block(symbol_key):
+        log.info(f"REJECTED {symbol_key} correlation blocker")
+        return
+
+    # ============================================================
+    # DUPLICATE FILTER
+    # ============================================================
+    if duplicate_signal(symbol_key, direction):
+        log.info(f"REJECTED {symbol_key} duplicate signal")
+        return
 
     now = time.time()
 
-    # Patch 12 — BTC dynamic global cooldown
+    # ============================================================
+    # COOLDOWN FILTER
+    # ============================================================
     symbol_cooldown = 1800 if symbol_key == "BTC/USD" else SIGNAL_COOLDOWN
+
     if now - _signal_sent[symbol_key] < symbol_cooldown:
         remaining = int(symbol_cooldown - (now - _signal_sent[symbol_key]))
-        log.info(f"REJECTED {symbol_key} cooldown {remaining}s"); return
+        log.info(f"REJECTED {symbol_key} cooldown active ({remaining}s remaining)")
+        return
 
-    # Dynamic RR — BTC overrides
+    # ============================================================
+    # RR ENGINE
+    # ============================================================
     if symbol_key == "BTC/USD":
         if "BTC_BEAR_FVG" in conditions or "BTC_BEAR_OB" in conditions:
             rr = BTC_BREAKDOWN_RR
@@ -1629,14 +1758,25 @@ def process_symbol(symbol_key):
     else:
         rr = get_dynamic_rr(symbol_key, regime)
 
+    # ============================================================
+    # FINAL SIGNAL EXECUTION
+    # ============================================================
     with signal_lock:
         _signal_sent[symbol_key]        = now
         _daily_signal_count[symbol_key] += 1
 
+    log.info(
+        f"EXECUTING {symbol_key} {direction} | "
+        f"Final Score: {ict_score} | "
+        f"Wizard: {wizard_score} | "
+        f"Sniper: {sniper_score} | "
+        f"RR: {rr}"
+    )
+
     execute_trade(
         symbol_key, df, direction, ict_score, wizard_score,
         sniper_score, macro_trend, session, trend,
-        regime, conditions, source, rr, mtf_trends
+        regime, conditions, source, rr, mtf_trends,
     )
 
 # ============================================================
