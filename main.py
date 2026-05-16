@@ -1,4 +1,4 @@
-Here’s the full updated code with all 13 patches applied:
+
 
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
