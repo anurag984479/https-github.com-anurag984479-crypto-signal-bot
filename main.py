@@ -1,4 +1,4 @@
-This is a clean rewrite of process_symbol with better logging throughout. Here’s the full updated bot with this version replacing the old one:
+
 
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
