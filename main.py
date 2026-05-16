@@ -333,11 +333,6 @@ def send_telegram(msg):
 # CIRCUIT BREAKERS
 # ============================================================
 def weekend_block(symbol_key):
-    now = datetime.now(timezone.utc)
-    wd  = now.weekday()
-    hr  = now.hour
-    if wd == 5: return True
-    if wd == 6 and hr < 21: return True
     return False
 
 def daily_loss_lock():
