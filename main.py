@@ -1,3 +1,5 @@
+Here’s the full updated code with all 13 patches applied:
+
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-ICT-SUPREME-2026-ELITE
@@ -94,7 +96,7 @@ MARKETS = {
     "BTC/USD": {
         "mt5": "BTCUSD", "yf": "BTC-USD",
         "price_lo": 0, "price_hi": float("inf"),
-        "sessions": [0, 24], "decimals": 2, "min_sl": 80.0,
+        "sessions": [0, 24], "decimals": 2, "min_sl": 120.0,
         "tier": "CRYPTO ELITE", "bias": "BULL", "rr": 2.8,
         "sweep_bonus": 3, "wick_ratio": 1.8,
     },
@@ -132,6 +134,17 @@ EXECUTION_BUFFER = {
 
 RANGE_MIN_SCORE = 9
 TREND_MIN_SCORE = 10
+
+# ============================================================
+# BTC AGGRESSIVE MODE SETTINGS
+# ============================================================
+ENABLE_BTC_AGGRESSIVE_REVERSAL = True
+BTC_REVERSAL_MIN_SCORE         = 10
+BTC_REVERSAL_RR                = 3.5
+
+ENABLE_BTC_BREAKDOWN_MODE      = True
+BTC_BREAKDOWN_MIN_SCORE        = 9
+BTC_BREAKDOWN_RR               = 3.2
 
 MARKET_STRUCTURE = {
     "XAU/USD": {
@@ -184,7 +197,7 @@ DOLLAR_PER_POINT = {
 
 MAX_SPREAD = {
     "XAU/USD": 1.35, "NAS100": 5.0, "EUR/USD": 0.00035,
-    "GBP/JPY": 0.060, "BTC/USD": 25.0,
+    "GBP/JPY": 0.060, "BTC/USD": 35.0,
 }
 
 REGIME_TIMEFRAME = {
@@ -919,31 +932,130 @@ def detect_continuation_retest(df, symbol_key):
     strong_sell = elite_strong_candle(df, "SELL")
     mtf_trends  = ict_mtf_trend(df)
 
-    # BUY CONTINUATION
     buy_score = 0
     buy_cond  = {}
 
     if ict_trend_aligned(mtf_trends, "BUY"):
-        if bull_fvg:  buy_score += 4; buy_cond["FVG_RETEST"]       = True
-        if bull_ob:   buy_score += 3; buy_cond["OB_RETEST"]         = True
-        if rsi > 50:  buy_score += 2; buy_cond["RSI_BULLISH"]       = True
-        if adx > 22:  buy_score += 2; buy_cond["ADX_STRENGTH"]      = True
-        if strong_buy: buy_score += 3; buy_cond["REJECTION_CANDLE"] = True
+        if bull_fvg:   buy_score += 4; buy_cond["FVG_RETEST"]       = True
+        if bull_ob:    buy_score += 3; buy_cond["OB_RETEST"]         = True
+        if rsi > 50:   buy_score += 2; buy_cond["RSI_BULLISH"]       = True
+        if adx > 22:   buy_score += 2; buy_cond["ADX_STRENGTH"]      = True
+        if strong_buy: buy_score += 3; buy_cond["REJECTION_CANDLE"]  = True
 
-    # SELL CONTINUATION
     sell_score = 0
     sell_cond  = {}
 
     if ict_trend_aligned(mtf_trends, "SELL"):
-        if bear_fvg:   sell_score += 4; sell_cond["FVG_RETEST"]       = True
-        if bear_ob:    sell_score += 3; sell_cond["OB_RETEST"]         = True
-        if rsi < 50:   sell_score += 2; sell_cond["RSI_BEARISH"]       = True
-        if adx > 22:   sell_score += 2; sell_cond["ADX_STRENGTH"]      = True
+        if bear_fvg:    sell_score += 4; sell_cond["FVG_RETEST"]      = True
+        if bear_ob:     sell_score += 3; sell_cond["OB_RETEST"]        = True
+        if rsi < 50:    sell_score += 2; sell_cond["RSI_BEARISH"]      = True
+        if adx > 22:    sell_score += 2; sell_cond["ADX_STRENGTH"]     = True
         if strong_sell: sell_score += 3; sell_cond["REJECTION_CANDLE"] = True
 
     if buy_score >= 12 and buy_score > sell_score:
         return "BUY",  buy_score, buy_cond
-    if sell_score >= 12 and sell_score > buy_score:
+    if sell_score >= 10 and sell_score > buy_score:
+        return "SELL", sell_score, sell_cond
+
+    return None, 0, {}
+
+# ============================================================
+# BTC AGGRESSIVE REVERSAL (BUY)
+# ============================================================
+def btc_aggressive_reversal(df, symbol_key):
+    if symbol_key != "BTC/USD" or len(df) < 50:
+        return None, 0, {}
+
+    last   = df.iloc[-1]
+    atr    = float(last["atr"])
+    rsi    = float(last["rsi"])
+    volume = float(last["volume"])
+    volma  = float(last["volma"]) if not pd.isna(last["volma"]) else 0
+
+    buy_score = 0
+    buy_cond  = {}
+
+    bull_sweep, _ = detect_liquidity_sweep(df, symbol_key)
+    bull_wick, _  = detect_wick_rejection(df, atr, symbol_key)
+    pd_zone       = premium_discount(df, symbol_key)
+    strong_buy    = elite_strong_candle(df, "BUY")
+    micro_buy     = micro_bos(df, "BUY")
+    wt_buy        = wavetrend_confirmation(df, "BUY")
+
+    if bull_sweep:                             buy_score += 4; buy_cond["BTC_LIQUIDITY_SWEEP"]        = True
+    if pd_zone["discount"]:                    buy_score += 3; buy_cond["BTC_DISCOUNT_ZONE"]          = True
+    if strong_buy:                             buy_score += 4; buy_cond["BTC_BULLISH_ENGULF"]         = True
+    if bull_wick:                              buy_score += 3; buy_cond["BTC_WICK_REJECTION"]         = True
+    if volma > 0 and volume > volma * 1.5:     buy_score += 4; buy_cond["BTC_VOLUME_SPIKE"]          = True
+    if micro_buy:                              buy_score += 2; buy_cond["BTC_MICRO_BOS"]              = True
+    if wt_buy:                                 buy_score += 2; buy_cond["BTC_WAVETREND"]              = True
+    if rsi < 42:                               buy_score += 2; buy_cond["BTC_RSI_RECOVERY"]          = True
+    if bull_sweep and strong_buy:              buy_score += 3; buy_cond["BTC_SWEEP+ENGULF_CLUSTER"]   = True
+    if bull_sweep and pd_zone["discount"]:     buy_score += 3; buy_cond["BTC_SWEEP+DISCOUNT_CLUSTER"] = True
+    if bull_sweep and volma > 0 and volume > volma * 1.5:
+                                               buy_score += 3; buy_cond["BTC_SWEEP+VOLUME_CLUSTER"]   = True
+
+    if (
+        bull_sweep
+        and pd_zone["discount"]
+        and strong_buy
+        and volma > 0
+        and volume > volma * 1.5
+        and buy_score >= BTC_REVERSAL_MIN_SCORE
+    ):
+        return "BUY", buy_score, buy_cond
+
+    return None, 0, {}
+
+# ============================================================
+# BTC BEARISH BREAKDOWN (SELL)
+# ============================================================
+def btc_bearish_breakdown(df, symbol_key):
+    if symbol_key != "BTC/USD" or len(df) < 50:
+        return None, 0, {}
+
+    last   = df.iloc[-1]
+    rsi    = float(last["rsi"])
+    adx    = float(last["adx"])
+    atr    = float(last["atr"])
+    volume = float(last["volume"])
+    volma  = float(last["volma"]) if not pd.isna(last["volma"]) else 0
+
+    sell_score = 0
+    sell_cond  = {}
+
+    _, bear_fvg, _, _ = detect_fvg(df, symbol_key)
+    _, bear_ob, _, _  = detect_order_block(df, symbol_key)
+    _, bear_sweep     = detect_liquidity_sweep(df, symbol_key)
+    _, bear_wick      = detect_wick_rejection(df, atr, symbol_key)
+    bos_sell          = break_of_structure(df, "SELL")
+    micro_sell        = micro_bos(df, "SELL")
+    strong_sell       = elite_strong_candle(df, "SELL")
+    wt_sell           = wavetrend_confirmation(df, "SELL")
+    pd_zone           = premium_discount(df, symbol_key)
+
+    if bear_fvg:                               sell_score += 4; sell_cond["BTC_BEAR_FVG"]           = True
+    if bear_ob:                                sell_score += 4; sell_cond["BTC_BEAR_OB"]            = True
+    if bear_sweep:                             sell_score += 3; sell_cond["BTC_LIQUIDITY_SWEEP"]     = True
+    if bear_wick:                              sell_score += 3; sell_cond["BTC_WICK_REJECTION"]      = True
+    if bos_sell:                               sell_score += 4; sell_cond["BTC_BOS_SELL"]           = True
+    if micro_sell:                             sell_score += 2; sell_cond["BTC_MICRO_BOS"]          = True
+    if strong_sell:                            sell_score += 4; sell_cond["BTC_STRONG_SELL_CANDLE"]  = True
+    if wt_sell:                                sell_score += 2; sell_cond["BTC_WAVETREND_SELL"]     = True
+    if pd_zone["premium"]:                     sell_score += 3; sell_cond["BTC_PREMIUM_ZONE"]       = True
+    if rsi < 45:                               sell_score += 2; sell_cond["BTC_RSI_BEARISH"]        = True
+    if adx > 20:                               sell_score += 2; sell_cond["BTC_ADX_STRENGTH"]       = True
+    if volma > 0 and volume > volma * 1.4:     sell_score += 4; sell_cond["BTC_VOLUME_SPIKE"]       = True
+    if bear_fvg and bear_ob:                   sell_score += 4; sell_cond["BTC_OB+FVG_CLUSTER"]     = True
+    if bos_sell and strong_sell:               sell_score += 4; sell_cond["BTC_BOS+DISPLACEMENT"]   = True
+    if bear_sweep and bear_fvg:                sell_score += 3; sell_cond["BTC_SWEEP+FVG_CLUSTER"]  = True
+    if bear_ob and pd_zone["premium"]:         sell_score += 3; sell_cond["BTC_OB+PREMIUM_CLUSTER"] = True
+
+    if (
+        sell_score >= BTC_BREAKDOWN_MIN_SCORE
+        and (bear_fvg or bear_ob or bos_sell)
+        and strong_sell
+    ):
         return "SELL", sell_score, sell_cond
 
     return None, 0, {}
@@ -1153,7 +1265,7 @@ def duplicate_signal(symbol_key, direction):
     now = time.time()
     duplicate_windows = {
         "XAU/USD": 3600, "NAS100": 5400, "EUR/USD": 3600,
-        "GBP/JPY": 3600, "BTC/USD": 3600,
+        "GBP/JPY": 3600, "BTC/USD": 1800,
     }
     cooldown = duplicate_windows.get(symbol_key, 3600)
     with signal_lock:
@@ -1403,46 +1515,93 @@ def process_symbol(symbol_key):
     # Primary ICT signal engine
     direction, ict_score, conditions = ict_signal_engine(df, symbol_key, session)
 
-    # Continuation retest fallback
+    # BTC Aggressive BUY Reversal PRIORITY
+    if (
+        (direction is None or ict_score == 0)
+        and symbol_key == "BTC/USD"
+        and ENABLE_BTC_AGGRESSIVE_REVERSAL
+    ):
+        direction, ict_score, conditions = btc_aggressive_reversal(df, symbol_key)
+
+    # BTC Aggressive SELL Breakdown PRIORITY
+    if (
+        (direction is None or ict_score == 0)
+        and symbol_key == "BTC/USD"
+        and ENABLE_BTC_BREAKDOWN_MODE
+    ):
+        direction, ict_score, conditions = btc_bearish_breakdown(df, symbol_key)
+
+    # Continuation retest fallback LAST
     if direction is None or ict_score == 0:
         direction, ict_score, conditions = detect_continuation_retest(df, symbol_key)
 
     # Final rejection
     if direction is None or ict_score == 0:
-        log.info(f"REJECTED {symbol_key} no valid ICT or continuation setup")
+        log.info(f"REJECTED {symbol_key} no valid ICT / reversal / breakdown setup")
         return
 
     log.info(f"{symbol_key} ICT Signal | Dir: {direction} | "
              f"Score: {ict_score} | Regime: {regime} | Session: {session}")
 
-    if "FVG_RETEST" in conditions or "OB_RETEST" in conditions:
-        min_ict = 12
+    if (
+        "FVG_RETEST" in conditions
+        or "OB_RETEST" in conditions
+        or "BTC_LIQUIDITY_SWEEP" in conditions
+        or "BTC_BEAR_FVG" in conditions
+        or "BTC_BEAR_OB" in conditions
+    ):
+        min_ict = 10
     else:
         min_ict = SESSION_THRESHOLDS.get(session, 16)
-    if ict_score < min_ict:
-        log.info(f"REJECTED {symbol_key} ICT score {ict_score} < {min_ict}"); return
-
     if ict_score < min_ict:
         log.info(f"REJECTED {symbol_key} ICT score {ict_score} < {min_ict}"); return
 
     if VOLATILITY_KILL and not quantum_volatility_ok(df):
         log.info(f"REJECTED {symbol_key} volatility filter"); return
 
-    if FALSE_BREAK_FILTER and regime in ["TREND", "BREAKOUT"]:
+    # Patch 10 — BTC false breakout exemption
+    if (
+        FALSE_BREAK_FILTER
+        and regime in ["TREND", "BREAKOUT"]
+        and symbol_key != "BTC/USD"
+    ):
         if not false_breakout_filter(df, direction):
-            log.info(f"REJECTED {symbol_key} false breakout filter"); return
+            log.info(f"REJECTED {symbol_key} false breakout filter")
+            return
 
+    # Patch 13 — BTC Wizard AI bypass
     wizard_score = 0
     if ENABLE_WIZARD_AI:
         wizard_pass, wizard_score = wizard_ai_confirmation(df, symbol_key, direction)
+
+        if symbol_key == "BTC/USD":
+            if (
+                "BTC_LIQUIDITY_SWEEP" in conditions
+                or "BTC_BEAR_FVG"     in conditions
+                or "BTC_BEAR_OB"      in conditions
+                or "BTC_BOS_SELL"     in conditions
+            ):
+                wizard_pass = True
+
         if not wizard_pass:
-            log.info(f"REJECTED {symbol_key} Wizard AI | Score: {wizard_score}"); return
+            log.info(f"REJECTED {symbol_key} Wizard AI | Score: {wizard_score}")
+            return
+
         ict_score += int(wizard_score * 0.25)
 
     sniper_score = ultra_sniper_score(df, symbol_key, direction)
     ict_score   += int(sniper_score * 0.30)
 
-    if regime != "RANGE" and symbol_key != "XAU/USD":
+    # BTC aggressive score booster
+    if symbol_key == "BTC/USD":
+        if "BTC_BEAR_FVG"        in conditions: ict_score += 2
+        if "BTC_BEAR_OB"         in conditions: ict_score += 2
+        if "BTC_BOS_SELL"        in conditions: ict_score += 2
+        if "BTC_VOLUME_SPIKE"    in conditions: ict_score += 2
+        if "BTC_LIQUIDITY_SWEEP" in conditions: ict_score += 2
+
+    # Patch 11 — BTC countertrend exemption
+    if regime != "RANGE" and symbol_key not in ["XAU/USD", "BTC/USD"]:
         if trend == "BULL" and direction == "SELL":
             log.info(f"REJECTED {symbol_key} countertrend SELL"); return
         if trend == "BEAR" and direction == "BUY":
@@ -1452,11 +1611,23 @@ def process_symbol(symbol_key):
     if duplicate_signal(symbol_key, direction): return
 
     now = time.time()
-    if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
-        remaining = int(SIGNAL_COOLDOWN - (now - _signal_sent[symbol_key]))
+
+    # Patch 12 — BTC dynamic global cooldown
+    symbol_cooldown = 1800 if symbol_key == "BTC/USD" else SIGNAL_COOLDOWN
+    if now - _signal_sent[symbol_key] < symbol_cooldown:
+        remaining = int(symbol_cooldown - (now - _signal_sent[symbol_key]))
         log.info(f"REJECTED {symbol_key} cooldown {remaining}s"); return
 
-    rr = get_dynamic_rr(symbol_key, regime)
+    # Dynamic RR — BTC overrides
+    if symbol_key == "BTC/USD":
+        if "BTC_BEAR_FVG" in conditions or "BTC_BEAR_OB" in conditions:
+            rr = BTC_BREAKDOWN_RR
+        elif "BTC_LIQUIDITY_SWEEP" in conditions:
+            rr = BTC_REVERSAL_RR
+        else:
+            rr = get_dynamic_rr(symbol_key, regime)
+    else:
+        rr = get_dynamic_rr(symbol_key, regime)
 
     with signal_lock:
         _signal_sent[symbol_key]        = now
@@ -1489,6 +1660,13 @@ def main():
         f"✅ Smart TP — Structure Liquidity Target\n"
         f"✅ Dynamic RR (auto-calculated)\n"
         f"✅ Continuation Retest Engine\n"
+        f"✅ BTC Aggressive Reversal Mode\n"
+        f"✅ BTC Bearish Breakdown Mode\n"
+        f"✅ BTC Score Booster\n"
+        f"✅ BTC False Breakout Exempt\n"
+        f"✅ BTC Countertrend Exempt\n"
+        f"✅ BTC Wizard AI Bypass\n"
+        f"✅ BTC Dynamic Cooldown\n"
         f"✅ Wizard AI Filter\n"
         f"✅ Ultra Sniper Score\n"
         f"✅ WaveTrend Confirmation\n"
