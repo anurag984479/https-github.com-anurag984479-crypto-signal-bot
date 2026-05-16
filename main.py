@@ -1,3 +1,5 @@
+Here’s the full updated code with detect_continuation_retest added and the fallback logic in process_symbol:
+
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-ICT-SUPREME-2026-ELITE
@@ -448,12 +450,12 @@ def detect_mss(df, symbol_key):
     lookback = MARKET_STRUCTURE[symbol_key]["mss_lookback"]
     if len(df) < lookback + 3:
         return False, False
-    recent       = df.tail(lookback + 3)
-    closes       = recent["close"].values
-    highs        = recent["high"].values
-    lows         = recent["low"].values
-    swing_high   = float(highs[:-2].max())
-    swing_low    = float(lows[:-2].min())
+    recent        = df.tail(lookback + 3)
+    closes        = recent["close"].values
+    highs         = recent["high"].values
+    lows          = recent["low"].values
+    swing_high    = float(highs[:-2].max())
+    swing_low     = float(lows[:-2].min())
     current_close = float(closes[-1])
     prev_close    = float(closes[-2])
     atr           = float(df.iloc[-1]["atr"])
@@ -580,10 +582,10 @@ def detect_liquidity_sweep(df, symbol_key):
 def detect_wick_rejection(df, atr, symbol_key):
     if len(df) < 2:
         return False, False
-    candle     = df.iloc[-1]
-    open_p     = float(candle["open"]);  close_p = float(candle["close"])
-    high_p     = float(candle["high"]);  low_p   = float(candle["low"])
-    body       = abs(close_p - open_p)
+    candle = df.iloc[-1]
+    open_p = float(candle["open"]); close_p = float(candle["close"])
+    high_p = float(candle["high"]); low_p   = float(candle["low"])
+    body   = abs(close_p - open_p)
     if body < atr * 0.05:
         return False, False
     upper_wick = high_p - max(open_p, close_p)
@@ -903,6 +905,52 @@ def ict_signal_engine(df, symbol_key, session):
         return "SELL", sell_score, sell_cond
 
 # ============================================================
+# CONTINUATION RETEST ENGINE
+# ============================================================
+def detect_continuation_retest(df, symbol_key):
+    if len(df) < 50:
+        return None, 0, {}
+
+    last  = df.iloc[-1]
+    rsi   = float(last["rsi"])
+    adx   = float(last["adx"])
+
+    bull_fvg, bear_fvg, _, _ = detect_fvg(df, symbol_key)
+    bull_ob,  bear_ob,  _, _ = detect_order_block(df, symbol_key)
+    strong_buy  = elite_strong_candle(df, "BUY")
+    strong_sell = elite_strong_candle(df, "SELL")
+    mtf_trends  = ict_mtf_trend(df)
+
+    # BUY CONTINUATION
+    buy_score = 0
+    buy_cond  = {}
+
+    if ict_trend_aligned(mtf_trends, "BUY"):
+        if bull_fvg:  buy_score += 4; buy_cond["FVG_RETEST"]       = True
+        if bull_ob:   buy_score += 3; buy_cond["OB_RETEST"]         = True
+        if rsi > 50:  buy_score += 2; buy_cond["RSI_BULLISH"]       = True
+        if adx > 22:  buy_score += 2; buy_cond["ADX_STRENGTH"]      = True
+        if strong_buy: buy_score += 3; buy_cond["REJECTION_CANDLE"] = True
+
+    # SELL CONTINUATION
+    sell_score = 0
+    sell_cond  = {}
+
+    if ict_trend_aligned(mtf_trends, "SELL"):
+        if bear_fvg:   sell_score += 4; sell_cond["FVG_RETEST"]       = True
+        if bear_ob:    sell_score += 3; sell_cond["OB_RETEST"]         = True
+        if rsi < 50:   sell_score += 2; sell_cond["RSI_BEARISH"]       = True
+        if adx > 22:   sell_score += 2; sell_cond["ADX_STRENGTH"]      = True
+        if strong_sell: sell_score += 3; sell_cond["REJECTION_CANDLE"] = True
+
+    if buy_score >= 12 and buy_score > sell_score:
+        return "BUY",  buy_score, buy_cond
+    if sell_score >= 12 and sell_score > buy_score:
+        return "SELL", sell_score, sell_cond
+
+    return None, 0, {}
+
+# ============================================================
 # INSTITUTIONAL STRUCTURE SCORE
 # ============================================================
 def institutional_structure_score(df, symbol_key):
@@ -960,13 +1008,13 @@ def wizard_ai_confirmation(df, symbol_key, direction):
     bull_wick, bear_wick     = detect_wick_rejection(df, float(last["atr"]), symbol_key)
     bull_mss, bear_mss       = detect_mss(df, symbol_key)
     if direction == "BUY":
-        if bull_fvg: score += 3; 
-        if bull_mss: score += 4
+        if bull_fvg:   score += 3
+        if bull_mss:   score += 4
         if bull_sweep: score += 2
         if bull_wick:  score += 2
     elif direction == "SELL":
-        if bear_fvg: score += 3
-        if bear_mss: score += 4
+        if bear_fvg:   score += 3
+        if bear_mss:   score += 4
         if bear_sweep: score += 2
         if bear_wick:  score += 2
     pd_zone = premium_discount(df, symbol_key)
@@ -1183,7 +1231,6 @@ def ict_calc_levels(price, atr, symbol_key, df, direction, rr):
             sl = price - min_sl; sl_dist = min_sl
         tp = smart_tp_target(df, symbol_key, direction, price, sl)
         rr = round(abs(tp - price) / abs(price - sl), 2)
-
     else:
         sl_refs = []
         if bear_ob  and ob_high  is not None: sl_refs.append(ob_high  + atr * 0.15)
@@ -1355,15 +1402,28 @@ def process_symbol(symbol_key):
 
     mtf_trends = ict_mtf_trend(df)
 
+    # Primary ICT signal engine
     direction, ict_score, conditions = ict_signal_engine(df, symbol_key, session)
 
+    # Continuation retest fallback
     if direction is None or ict_score == 0:
-        log.info(f"REJECTED {symbol_key} no valid ICT setup"); return
+        direction, ict_score, conditions = detect_continuation_retest(df, symbol_key)
+
+    # Final rejection
+    if direction is None or ict_score == 0:
+        log.info(f"REJECTED {symbol_key} no valid ICT or continuation setup")
+        return
 
     log.info(f"{symbol_key} ICT Signal | Dir: {direction} | "
              f"Score: {ict_score} | Regime: {regime} | Session: {session}")
 
-    min_ict = SESSION_THRESHOLDS.get(session, 16)
+        if "FVG_RETEST" in conditions or "OB_RETEST" in conditions:
+        min_ict = 12
+    else:
+        min_ict = SESSION_THRESHOLDS.get(session, 16)
+    if ict_score < min_ict:
+        log.info(f"REJECTED {symbol_key} ICT score {ict_score} < {min_ict}"); return
+
     if ict_score < min_ict:
         log.info(f"REJECTED {symbol_key} ICT score {ict_score} < {min_ict}"); return
 
@@ -1430,6 +1490,7 @@ def main():
         f"✅ ICT SL Placement (OB/FVG based)\n"
         f"✅ Smart TP — Structure Liquidity Target\n"
         f"✅ Dynamic RR (auto-calculated)\n"
+        f"✅ Continuation Retest Engine\n"
         f"✅ Wizard AI Filter\n"
         f"✅ Ultra Sniper Score\n"
         f"✅ WaveTrend Confirmation\n"
