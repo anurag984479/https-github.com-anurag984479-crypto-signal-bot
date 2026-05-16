@@ -1415,7 +1415,7 @@ def process_symbol(symbol_key):
     log.info(f"{symbol_key} ICT Signal | Dir: {direction} | "
              f"Score: {ict_score} | Regime: {regime} | Session: {session}")
 
-        if "FVG_RETEST" in conditions or "OB_RETEST" in conditions:
+    if "FVG_RETEST" in conditions or "OB_RETEST" in conditions:
         min_ict = 12
     else:
         min_ict = SESSION_THRESHOLDS.get(session, 16)
