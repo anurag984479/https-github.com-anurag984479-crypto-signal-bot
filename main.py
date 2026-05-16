@@ -1,5 +1,3 @@
-Here’s the full updated code with detect_continuation_retest added and the fallback logic in process_symbol:
-
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-ICT-SUPREME-2026-ELITE
