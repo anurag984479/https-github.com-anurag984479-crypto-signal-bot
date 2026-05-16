@@ -28,8 +28,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("ULTIMATE-ICT-2026")
 
-TOKEN   = os.getenv("TOKEN",   "")
-CHAT_ID = os.getenv("CHAT_ID", "")
+TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
+CHAT_ID = os.getenv("CHAT_ID", "8783763018")
 
 session_http = requests.Session()
 signal_lock  = Lock()
