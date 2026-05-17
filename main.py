@@ -1,4 +1,4 @@
-Here’s the full updated code with the scalp integration patch applied:
+l
 
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
