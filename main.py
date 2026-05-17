@@ -423,8 +423,10 @@ def add_ind(df):
     lo  = pd.to_numeric(df["low"],    errors="coerce")
     vol = pd.to_numeric(df["volume"], errors="coerce")
 
+    df["ema8"]     = ta.trend.EMAIndicator(cl, 8).ema_indicator()
     df["ema9"]     = ta.trend.EMAIndicator(cl, 9).ema_indicator()
     df["ema21"]    = ta.trend.EMAIndicator(cl, 21).ema_indicator()
+    df["ema33"]    = ta.trend.EMAIndicator(cl, 33).ema_indicator()
     df["ema50"]    = ta.trend.EMAIndicator(cl, 50).ema_indicator()
     df["ema200"]   = ta.trend.EMAIndicator(cl, 200).ema_indicator()
     df["rsi"]      = ta.momentum.RSIIndicator(cl, 14).rsi()
@@ -537,7 +539,7 @@ def detect_breaker_order_block(df, symbol_key, htf_bias):
             candle = recent.iloc[i]
             if float(candle["close"]) < float(candle["open"]):
                 ob_high = float(candle["high"])
-                ob_low = float(candle["low"])
+                ob_low  = float(candle["low"])
                 if last_close > ob_high + atr * 0.05:
                     sl = ob_low - atr * 0.10
                     return "BUY", ob_high, sl
@@ -547,7 +549,7 @@ def detect_breaker_order_block(df, symbol_key, htf_bias):
             candle = recent.iloc[i]
             if float(candle["close"]) > float(candle["open"]):
                 ob_high = float(candle["high"])
-                ob_low = float(candle["low"])
+                ob_low  = float(candle["low"])
                 if last_close < ob_low - atr * 0.05:
                     sl = ob_high + atr * 0.10
                     return "SELL", ob_low, sl
@@ -598,6 +600,53 @@ def smart_ai_short_term_trend(df):
     if ema9 > ema21 and aox > 0 and wt1 > wt2: return "BULLISH"
     if ema9 < ema21 and aox < 0 and wt1 < wt2: return "BEARISH"
     return "NEUTRAL"
+
+# ============================================================
+# EMA 8 / 33 PULLBACK CONFIRMATION
+# ============================================================
+def ema_pullback_confirmation(df, direction):
+    """
+    Institutional EMA trend continuation model:
+    EMA8  = momentum
+    EMA33 = pullback institutional zone
+
+    BUY:  EMA8 > EMA33, prev candle taps EMA33, prev candle bullish,
+          current candle breaks previous high
+    SELL: EMA8 < EMA33, prev candle taps EMA33, prev candle bearish,
+          current candle breaks previous low
+    """
+    if df is None or len(df) < 3:
+        return False
+
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    ema8  = float(last["ema8"])
+    ema33 = float(last["ema33"])
+
+    prev_open  = float(prev["open"])
+    prev_close = float(prev["close"])
+    prev_high  = float(prev["high"])
+    prev_low   = float(prev["low"])
+    last_close = float(last["close"])
+
+    if direction == "BUY":
+        return (
+            ema8 > ema33 and
+            prev_low <= ema33 and
+            prev_close > prev_open and
+            last_close > prev_high
+        )
+
+    if direction == "SELL":
+        return (
+            ema8 < ema33 and
+            prev_high >= ema33 and
+            prev_close < prev_open and
+            last_close < prev_low
+        )
+
+    return False
 
 # ============================================================
 # LIQUIDITY SWEEP
@@ -893,6 +942,8 @@ def ict_signal_engine(df, symbol_key, session):
     wt_sell    = wavetrend_confirmation(df, "SELL")
     inst_vol   = institutional_volume(df)
     demand_zone, supply_zone = detect_supply_demand_zones(df)
+    ema_buy    = ema_pullback_confirmation(df, "BUY")
+    ema_sell   = ema_pullback_confirmation(df, "SELL")
 
     buy_cond  = {}; buy_score  = 0
     sell_cond = {}; sell_score = 0
@@ -908,7 +959,7 @@ def ict_signal_engine(df, symbol_key, session):
     if bull_ob:                     buy_score += 5; buy_cond["ORDER_BLOCK_BULL"]     = True
     if bull_sweep:                  buy_score += 4; buy_cond["LIQUIDITY_SWEEP"]      = True
     if bull_wick:                   buy_score += 3; buy_cond["WICK_REJECTION"]       = True
-    if pd_zone["discount"]:         buy_score += 2; buy_cond["DISCOUNT_ZONE"]       = True
+    if pd_zone["discount"]:         buy_score += 2; buy_cond["DISCOUNT_ZONE"]        = True
     if bos_buy:                     buy_score += 3; buy_cond["BOS_BULLISH"]          = True
     if micro_buy:                   buy_score += 3; buy_cond["MICRO_BOS"]            = True
     if strong_buy:                  buy_score += 3; buy_cond["STRONG_CANDLE"]        = True
@@ -920,6 +971,7 @@ def ict_signal_engine(df, symbol_key, session):
     if bull_mss and bull_fvg:       buy_score += 5; buy_cond["ICT_MSS+FVG_CLUSTER"] = True
     if bull_mss and bull_ob:        buy_score += 5; buy_cond["ICT_MSS+OB_CLUSTER"]  = True
     if bull_sweep and bull_fvg:     buy_score += 3; buy_cond["SWEEP+FVG_CLUSTER"]   = True
+    if ema_buy:                     buy_score += 3; buy_cond["EMA_PULLBACK"]         = True
 
     tf_score_sell = ict_trend_score(mtf_trends, "SELL")
     if tf_score_sell >= 3:
@@ -932,7 +984,7 @@ def ict_signal_engine(df, symbol_key, session):
     if bear_ob:                     sell_score += 5; sell_cond["ORDER_BLOCK_BEAR"]    = True
     if bear_sweep:                  sell_score += 4; sell_cond["LIQUIDITY_SWEEP"]     = True
     if bear_wick:                   sell_score += 3; sell_cond["WICK_REJECTION"]      = True
-    if pd_zone["premium"]:          sell_score += 2; sell_cond["PREMIUM_ZONE"]       = True
+    if pd_zone["premium"]:          sell_score += 2; sell_cond["PREMIUM_ZONE"]        = True
     if bos_sell:                    sell_score += 3; sell_cond["BOS_BEARISH"]         = True
     if micro_sell:                  sell_score += 3; sell_cond["MICRO_BOS"]           = True
     if strong_sell:                 sell_score += 3; sell_cond["STRONG_CANDLE"]       = True
@@ -944,6 +996,7 @@ def ict_signal_engine(df, symbol_key, session):
     if bear_mss and bear_fvg:       sell_score += 5; sell_cond["ICT_MSS+FVG_CLUSTER"]= True
     if bear_mss and bear_ob:        sell_score += 5; sell_cond["ICT_MSS+OB_CLUSTER"] = True
     if bear_sweep and bear_fvg:     sell_score += 3; sell_cond["SWEEP+FVG_CLUSTER"]  = True
+    if ema_sell:                    sell_score += 3; sell_cond["EMA_PULLBACK"]        = True
 
     buy_ict_valid  = bull_mss or (bull_fvg and bull_ob) or (bull_sweep and bull_fvg)
     sell_ict_valid = bear_mss or (bear_fvg and bear_ob) or (bear_sweep and bear_fvg)
@@ -975,8 +1028,9 @@ def detect_continuation_retest(df, symbol_key):
     strong_buy  = elite_strong_candle(df, "BUY")
     strong_sell = elite_strong_candle(df, "SELL")
     mtf_trends  = ict_mtf_trend(df)
-
-    htf_bias = detect_htf_bias(symbol_key, df)
+    htf_bias    = detect_htf_bias(symbol_key, df)
+    ema_buy     = ema_pullback_confirmation(df, "BUY")
+    ema_sell    = ema_pullback_confirmation(df, "SELL")
 
     breaker_dir, breaker_entry, breaker_sl = detect_breaker_order_block(
         df, symbol_key, htf_bias
@@ -993,6 +1047,7 @@ def detect_continuation_retest(df, symbol_key):
         if strong_buy: buy_score += 3; buy_cond["REJECTION_CANDLE"]   = True
         if breaker_dir == "BUY":
             buy_score += 6; buy_cond["BREAKER_OB_CONFIRMATION"] = True
+        if ema_buy:    buy_score += 4; buy_cond["EMA_PULLBACK"]       = True
 
     sell_score = 0
     sell_cond  = {}
@@ -1005,6 +1060,7 @@ def detect_continuation_retest(df, symbol_key):
         if strong_sell: sell_score += 3; sell_cond["REJECTION_CANDLE"]  = True
         if breaker_dir == "SELL":
             sell_score += 6; sell_cond["BREAKER_OB_CONFIRMATION"] = True
+        if ema_sell:    sell_score += 4; sell_cond["EMA_PULLBACK"]      = True
 
     if buy_score >= 12 and buy_score > sell_score:
         return "BUY",  buy_score, buy_cond
@@ -1039,6 +1095,8 @@ def scalp_signal_engine(df, symbol_key, session):
     bull_fvg, bear_fvg, _, _ = detect_fvg(df, symbol_key)
     strong_buy  = elite_strong_candle(df, "BUY")
     strong_sell = elite_strong_candle(df, "SELL")
+    ema_buy     = ema_pullback_confirmation(df, "BUY")
+    ema_sell    = ema_pullback_confirmation(df, "SELL")
 
     buy_score = 0; sell_score = 0
     buy_cond  = {}; sell_cond = {}
@@ -1050,6 +1108,7 @@ def scalp_signal_engine(df, symbol_key, session):
     if wt_buy:                     buy_score += 2;  buy_cond["WAVETREND"]      = True
     if bull_fvg:                   buy_score += 2;  buy_cond["FVG_SCALP"]      = True
     if strong_buy:                 buy_score += 3;  buy_cond["STRONG_CANDLE"]  = True
+    if ema_buy:                    buy_score += 4;  buy_cond["EMA_PULLBACK"]   = True
 
     if rsi >= SCALP_RSI_SELL_MIN:  sell_score += 2; sell_cond["RSI_OVERBOUGHT"] = True
     if micro_sell:                  sell_score += 3; sell_cond["MICRO_BOS"]      = True
@@ -1058,6 +1117,7 @@ def scalp_signal_engine(df, symbol_key, session):
     if wt_sell:                     sell_score += 2; sell_cond["WAVETREND"]      = True
     if bear_fvg:                    sell_score += 2; sell_cond["FVG_SCALP"]      = True
     if strong_sell:                 sell_score += 3; sell_cond["STRONG_CANDLE"]  = True
+    if ema_sell:                    sell_score += 4; sell_cond["EMA_PULLBACK"]   = True
 
     if buy_score >= SCALP_MIN_SCORE and buy_score > sell_score:
         return "BUY",  buy_score, buy_cond
@@ -1128,11 +1188,13 @@ def wizard_ai_confirmation(df, symbol_key, direction):
         if bull_mss:   score += 4
         if bull_sweep: score += 2
         if bull_wick:  score += 2
+        if ema_pullback_confirmation(df, "BUY"):  score += 4
     elif direction == "SELL":
         if bear_fvg:   score += 3
         if bear_mss:   score += 4
         if bear_sweep: score += 2
         if bear_wick:  score += 2
+        if ema_pullback_confirmation(df, "SELL"): score += 4
     pd_zone = premium_discount(df, symbol_key)
     if direction == "BUY"  and pd_zone["discount"]: score += 2
     if direction == "SELL" and pd_zone["premium"]:  score += 2
@@ -1168,6 +1230,7 @@ def ultra_sniper_score(df, symbol_key, direction):
     if direction == "SELL" and rsi < 40: score += 3
     if adx > 30:  score += 3
     if volma > 0 and vol > volma * 1.7: score += 4
+    if ema_pullback_confirmation(df, direction): score += 5
     return score
 
 # ============================================================
@@ -1638,6 +1701,12 @@ def process_symbol(symbol_key):
         if trend == "BEAR" and direction == "BUY":
             log.info(f"REJECTED {symbol_key} countertrend BUY"); return
 
+    # EMA pullback hard filter for TREND and BREAKOUT regimes
+    if regime in ["TREND", "BREAKOUT"]:
+        if not ema_pullback_confirmation(df, direction):
+            log.info(f"REJECTED {symbol_key} EMA pullback confirmation failed")
+            return
+
     if correlated_signal_block(symbol_key): return
     if duplicate_signal(symbol_key, direction): return
 
@@ -1681,6 +1750,7 @@ def main():
         f"✅ Dynamic RR (auto-calculated)\n"
         f"✅ Continuation Retest Engine\n"
         f"✅ Scalp Sniper Engine\n"
+        f"✅ EMA 8/33 Institutional Pullback\n"
         f"✅ Wizard AI Filter\n"
         f"✅ Ultra Sniper Score\n"
         f"✅ WaveTrend Confirmation\n"
