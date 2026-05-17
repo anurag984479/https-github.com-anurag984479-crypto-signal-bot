@@ -1,9 +1,10 @@
+Here’s the full updated code with the scalp integration patch applied:
+
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
 # ULTIMATE-ICT-SUPREME-2026-ELITE
 # XAU/USD + NAS100 + EUR/USD + GBP/JPY + BTC/USD
 # ICT CONCEPT ENGINE — MSS + FVG + OB + MTF TREND
-# PATCHED: RR filter, score filter, Telegram fix, TP validation
 # ============================================================
 
 import gc
@@ -57,10 +58,14 @@ SCALP_ADX_MIN      = 14
 SCALP_ADX_MAX      = 26
 SCALP_RSI_BUY_MAX  = 38
 SCALP_RSI_SELL_MIN = 62
+SCALP_MIN_SCORE    = 8
 SCALP_RR = {
     "XAU/USD": 2.0, "NAS100": 1.8, "EUR/USD": 1.8,
     "GBP/JPY": 2.0, "BTC/USD": 2.0,
 }
+
+SCALP_SIGNAL_COOLDOWN = 900
+SCALP_MAX_SIGNALS_PER_SESSION = 4
 
 MARKETS = {
     "XAU/USD": {
@@ -94,7 +99,7 @@ MARKETS = {
     "BTC/USD": {
         "mt5": "BTCUSD", "yf": "BTC-USD",
         "price_lo": 0, "price_hi": float("inf"),
-        "sessions": [0, 24], "decimals": 2, "min_sl": 120.0,
+        "sessions": [0, 24], "decimals": 2, "min_sl": 80.0,
         "tier": "CRYPTO ELITE", "bias": "BULL", "rr": 2.8,
         "sweep_bonus": 3, "wick_ratio": 1.8,
     },
@@ -116,8 +121,9 @@ AOX_FAST               = 5
 AOX_SLOW               = 34
 
 ENABLE_WIZARD_AI     = True
-WIZARD_ADX_THRESHOLD = 25
+WIZARD_MIN_SCORE     = 18
 WIZARD_VOLUME_MULT   = 1.5
+WIZARD_ADX_THRESHOLD = 25
 
 CORRELATION_BLOCK   = True
 MAX_OPEN_CORRELATED = 2
@@ -131,25 +137,6 @@ EXECUTION_BUFFER = {
 
 RANGE_MIN_SCORE = 9
 TREND_MIN_SCORE = 10
-
-# ============================================================
-# PATCH 2 — GLOBAL FILTERS (raised thresholds)
-# ============================================================
-MIN_RR_ALLOWED          = 2.0
-MIN_TOTAL_SCORE         = 18
-WIZARD_MIN_SCORE        = 20
-SCALP_MIN_SCORE         = 10
-BTC_BREAKDOWN_MIN_SCORE = 12
-BTC_REVERSAL_MIN_SCORE  = 12
-
-# ============================================================
-# BTC AGGRESSIVE MODE SETTINGS
-# ============================================================
-ENABLE_BTC_AGGRESSIVE_REVERSAL = True
-ENABLE_BTC_BREAKDOWN_MODE      = True
-
-BTC_REVERSAL_RR  = 3.5
-BTC_BREAKDOWN_RR = 3.2
 
 MARKET_STRUCTURE = {
     "XAU/USD": {
@@ -188,7 +175,7 @@ MARKET_MIN_STRUCTURE_SCORE = {
     "XAU/USD": 5, "NAS100": 7, "EUR/USD": 5, "GBP/JPY": 5, "BTC/USD": 6,
 }
 
-ALLOWED_SESSIONS = ["London", "NY Killzone", "NY+London", "24H"]
+ALLOWED_SESSIONS = ["London", "NY Killzone", "NY+London"]
 
 ATR_MARKET_MULTIPLIER = {
     "XAU/USD": 1.05, "NAS100": 1.03, "EUR/USD": 0.95,
@@ -202,7 +189,7 @@ DOLLAR_PER_POINT = {
 
 MAX_SPREAD = {
     "XAU/USD": 1.35, "NAS100": 5.0, "EUR/USD": 0.00035,
-    "GBP/JPY": 0.060, "BTC/USD": 35.0,
+    "GBP/JPY": 0.060, "BTC/USD": 25.0,
 }
 
 REGIME_TIMEFRAME = {
@@ -229,6 +216,8 @@ _last_signal_direction = {}
 _last_signal_time      = {}
 _signal_counter        = {s: {"session": None, "count": 0} for s in SYMBOLS}
 _daily_signal_count    = {s: 0 for s in SYMBOLS}
+_scalp_signal_sent     = {s: 0 for s in SYMBOLS}
+_scalp_signal_count    = {s: 0 for s in SYMBOLS}
 
 for _file in ["signals_log.csv", "signals_backup.csv"]:
     if not os.path.exists(_file):
@@ -240,13 +229,14 @@ for _file in ["signals_log.csv", "signals_backup.csv"]:
 # ============================================================
 def reset_daily():
     global daily_pnl, consecutive_losses, last_reset_day
-    global _daily_signal_count, _htf_cache
+    global _daily_signal_count, _htf_cache, _scalp_signal_count
     current_day = datetime.now(timezone.utc).day
     if current_day != last_reset_day:
         daily_pnl           = 0
         consecutive_losses  = 0
         last_reset_day      = current_day
         _daily_signal_count = {s: 0 for s in SYMBOLS}
+        _scalp_signal_count = {s: 0 for s in SYMBOLS}
         _htf_cache          = {s: {"trend": "NEUTRAL", "ts": 0} for s in SYMBOLS}
         log.info("Daily reset complete")
 
@@ -313,17 +303,14 @@ def log_signal(symbol, direction, score, rr, entry, sl, tp,
             log.error(f"Backup log failed: {e}")
 
 # ============================================================
-# TELEGRAM — PATCH 3: removed parse_mode to fix formatting errors
+# TELEGRAM
 # ============================================================
 def send_telegram(msg):
     for attempt in range(3):
         try:
             r = session_http.post(
                 f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                json={
-                    "chat_id": CHAT_ID,
-                    "text": msg
-                },
+                json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"},
                 timeout=8
             )
             if r.status_code != 200:
@@ -341,6 +328,11 @@ def send_telegram(msg):
 # CIRCUIT BREAKERS
 # ============================================================
 def weekend_block(symbol_key):
+    now = datetime.now(timezone.utc)
+    wd  = now.weekday()
+    hr  = now.hour
+    if wd == 5: return True
+    if wd == 6 and hr < 21: return True
     return False
 
 def daily_loss_lock():
@@ -528,6 +520,39 @@ def detect_order_block(df, symbol_key):
                 if float(candle["low"]) * 0.998 <= price <= float(candle["high"]):
                     bear_ob = True; ob_high = float(candle["high"]); ob_low = float(candle["low"]); break
     return bull_ob, bear_ob, ob_high, ob_low
+
+# ============================================================
+# ICT — BREAKER ORDER BLOCK
+# ============================================================
+def detect_breaker_order_block(df, symbol_key, htf_bias):
+    lookback = MARKET_STRUCTURE[symbol_key]["ob_lookback"]
+    if len(df) < lookback + 5:
+        return None, None, None
+    recent = df.tail(lookback + 5)
+    atr = float(df.iloc[-1]["atr"])
+    last_close = float(df.iloc[-1]["close"])
+
+    if htf_bias == "BULL":
+        for i in range(len(recent) - 4, 2, -1):
+            candle = recent.iloc[i]
+            if float(candle["close"]) < float(candle["open"]):
+                ob_high = float(candle["high"])
+                ob_low = float(candle["low"])
+                if last_close > ob_high + atr * 0.05:
+                    sl = ob_low - atr * 0.10
+                    return "BUY", ob_high, sl
+
+    elif htf_bias == "BEAR":
+        for i in range(len(recent) - 4, 2, -1):
+            candle = recent.iloc[i]
+            if float(candle["close"]) > float(candle["open"]):
+                ob_high = float(candle["high"])
+                ob_low = float(candle["low"])
+                if last_close < ob_low - atr * 0.05:
+                    sl = ob_high + atr * 0.10
+                    return "SELL", ob_low, sl
+
+    return None, None, None
 
 # ============================================================
 # ICT — MTF TREND
@@ -763,6 +788,22 @@ def get_trend(symbol_key):
     return trend
 
 # ============================================================
+# HTF BIAS DETECTION
+# ============================================================
+def detect_htf_bias(symbol_key, df):
+    if df is None or len(df) < 200:
+        return "NEUTRAL"
+    last   = df.iloc[-1]
+    ema50  = float(last["ema50"])
+    ema200 = float(last["ema200"])
+    close  = float(last["close"])
+    if close > ema50 and ema50 > ema200:
+        return "BULL"
+    elif close < ema50 and ema50 < ema200:
+        return "BEAR"
+    return "NEUTRAL"
+
+# ============================================================
 # WEEKLY / DAILY / H12 / H4 TREND
 # ============================================================
 def weekly_trend(df, direction):
@@ -935,130 +976,92 @@ def detect_continuation_retest(df, symbol_key):
     strong_sell = elite_strong_candle(df, "SELL")
     mtf_trends  = ict_mtf_trend(df)
 
+    htf_bias = detect_htf_bias(symbol_key, df)
+
+    breaker_dir, breaker_entry, breaker_sl = detect_breaker_order_block(
+        df, symbol_key, htf_bias
+    )
+
     buy_score = 0
     buy_cond  = {}
 
     if ict_trend_aligned(mtf_trends, "BUY"):
-        if bull_fvg:   buy_score += 4; buy_cond["FVG_RETEST"]       = True
-        if bull_ob:    buy_score += 3; buy_cond["OB_RETEST"]         = True
-        if rsi > 50:   buy_score += 2; buy_cond["RSI_BULLISH"]       = True
-        if adx > 22:   buy_score += 2; buy_cond["ADX_STRENGTH"]      = True
-        if strong_buy: buy_score += 3; buy_cond["REJECTION_CANDLE"]  = True
+        if bull_fvg:   buy_score += 4; buy_cond["FVG_RETEST"]        = True
+        if bull_ob:    buy_score += 3; buy_cond["OB_RETEST"]          = True
+        if rsi > 50:   buy_score += 2; buy_cond["RSI_BULLISH"]        = True
+        if adx > 22:   buy_score += 2; buy_cond["ADX_STRENGTH"]       = True
+        if strong_buy: buy_score += 3; buy_cond["REJECTION_CANDLE"]   = True
+        if breaker_dir == "BUY":
+            buy_score += 6; buy_cond["BREAKER_OB_CONFIRMATION"] = True
 
     sell_score = 0
     sell_cond  = {}
 
     if ict_trend_aligned(mtf_trends, "SELL"):
-        if bear_fvg:    sell_score += 4; sell_cond["FVG_RETEST"]      = True
-        if bear_ob:     sell_score += 3; sell_cond["OB_RETEST"]        = True
-        if rsi < 50:    sell_score += 2; sell_cond["RSI_BEARISH"]      = True
-        if adx > 22:    sell_score += 2; sell_cond["ADX_STRENGTH"]     = True
-        if strong_sell: sell_score += 3; sell_cond["REJECTION_CANDLE"] = True
+        if bear_fvg:    sell_score += 4; sell_cond["FVG_RETEST"]       = True
+        if bear_ob:     sell_score += 3; sell_cond["OB_RETEST"]         = True
+        if rsi < 50:    sell_score += 2; sell_cond["RSI_BEARISH"]       = True
+        if adx > 22:    sell_score += 2; sell_cond["ADX_STRENGTH"]      = True
+        if strong_sell: sell_score += 3; sell_cond["REJECTION_CANDLE"]  = True
+        if breaker_dir == "SELL":
+            sell_score += 6; sell_cond["BREAKER_OB_CONFIRMATION"] = True
 
     if buy_score >= 12 and buy_score > sell_score:
         return "BUY",  buy_score, buy_cond
-    if sell_score >= 10 and sell_score > buy_score:
+    if sell_score >= 12 and sell_score > buy_score:
         return "SELL", sell_score, sell_cond
 
     return None, 0, {}
 
 # ============================================================
-# BTC AGGRESSIVE REVERSAL (BUY)
+# SCALP SIGNAL ENGINE
 # ============================================================
-def btc_aggressive_reversal(df, symbol_key):
-    if symbol_key != "BTC/USD" or len(df) < 50:
+def scalp_signal_engine(df, symbol_key, session):
+    if len(df) < 50:
         return None, 0, {}
 
-    last   = df.iloc[-1]
-    atr    = float(last["atr"])
-    rsi    = float(last["rsi"])
-    volume = float(last["volume"])
-    volma  = float(last["volma"]) if not pd.isna(last["volma"]) else 0
-
-    buy_score = 0
-    buy_cond  = {}
-
-    bull_sweep, _ = detect_liquidity_sweep(df, symbol_key)
-    bull_wick, _  = detect_wick_rejection(df, atr, symbol_key)
-    pd_zone       = premium_discount(df, symbol_key)
-    strong_buy    = elite_strong_candle(df, "BUY")
-    micro_buy     = micro_bos(df, "BUY")
-    wt_buy        = wavetrend_confirmation(df, "BUY")
-
-    if bull_sweep:                             buy_score += 4; buy_cond["BTC_LIQUIDITY_SWEEP"]        = True
-    if pd_zone["discount"]:                    buy_score += 3; buy_cond["BTC_DISCOUNT_ZONE"]          = True
-    if strong_buy:                             buy_score += 4; buy_cond["BTC_BULLISH_ENGULF"]         = True
-    if bull_wick:                              buy_score += 3; buy_cond["BTC_WICK_REJECTION"]         = True
-    if volma > 0 and volume > volma * 1.5:     buy_score += 4; buy_cond["BTC_VOLUME_SPIKE"]          = True
-    if micro_buy:                              buy_score += 2; buy_cond["BTC_MICRO_BOS"]              = True
-    if wt_buy:                                 buy_score += 2; buy_cond["BTC_WAVETREND"]              = True
-    if rsi < 42:                               buy_score += 2; buy_cond["BTC_RSI_RECOVERY"]          = True
-    if bull_sweep and strong_buy:              buy_score += 3; buy_cond["BTC_SWEEP+ENGULF_CLUSTER"]   = True
-    if bull_sweep and pd_zone["discount"]:     buy_score += 3; buy_cond["BTC_SWEEP+DISCOUNT_CLUSTER"] = True
-    if bull_sweep and volma > 0 and volume > volma * 1.5:
-                                               buy_score += 3; buy_cond["BTC_SWEEP+VOLUME_CLUSTER"]   = True
-
-    if (
-        bull_sweep
-        and pd_zone["discount"]
-        and strong_buy
-        and volma > 0
-        and volume > volma * 1.5
-        and buy_score >= BTC_REVERSAL_MIN_SCORE
-    ):
-        return "BUY", buy_score, buy_cond
-
-    return None, 0, {}
-
-# ============================================================
-# BTC BEARISH BREAKDOWN (SELL)
-# ============================================================
-def btc_bearish_breakdown(df, symbol_key):
-    if symbol_key != "BTC/USD" or len(df) < 50:
+    if session not in ALLOWED_SESSIONS:
         return None, 0, {}
 
-    last   = df.iloc[-1]
-    rsi    = float(last["rsi"])
-    adx    = float(last["adx"])
-    atr    = float(last["atr"])
-    volume = float(last["volume"])
-    volma  = float(last["volma"]) if not pd.isna(last["volma"]) else 0
+    last = df.iloc[-1]
+    adx  = float(last["adx"])
+    rsi  = float(last["rsi"])
 
-    sell_score = 0
-    sell_cond  = {}
+    if adx < SCALP_ADX_MIN or adx > SCALP_ADX_MAX:
+        return None, 0, {}
 
-    _, bear_fvg, _, _ = detect_fvg(df, symbol_key)
-    _, bear_ob, _, _  = detect_order_block(df, symbol_key)
-    _, bear_sweep     = detect_liquidity_sweep(df, symbol_key)
-    _, bear_wick      = detect_wick_rejection(df, atr, symbol_key)
-    bos_sell          = break_of_structure(df, "SELL")
-    micro_sell        = micro_bos(df, "SELL")
-    strong_sell       = elite_strong_candle(df, "SELL")
-    wt_sell           = wavetrend_confirmation(df, "SELL")
-    pd_zone           = premium_discount(df, symbol_key)
+    bull_sweep, bear_sweep   = detect_liquidity_sweep(df, symbol_key)
+    bull_wick,  bear_wick    = detect_wick_rejection(df, float(last["atr"]), symbol_key)
+    micro_buy  = micro_bos(df, "BUY")
+    micro_sell = micro_bos(df, "SELL")
+    wt_buy     = wavetrend_confirmation(df, "BUY")
+    wt_sell    = wavetrend_confirmation(df, "SELL")
+    bull_fvg, bear_fvg, _, _ = detect_fvg(df, symbol_key)
+    strong_buy  = elite_strong_candle(df, "BUY")
+    strong_sell = elite_strong_candle(df, "SELL")
 
-    if bear_fvg:                               sell_score += 4; sell_cond["BTC_BEAR_FVG"]           = True
-    if bear_ob:                                sell_score += 4; sell_cond["BTC_BEAR_OB"]            = True
-    if bear_sweep:                             sell_score += 3; sell_cond["BTC_LIQUIDITY_SWEEP"]     = True
-    if bear_wick:                              sell_score += 3; sell_cond["BTC_WICK_REJECTION"]      = True
-    if bos_sell:                               sell_score += 4; sell_cond["BTC_BOS_SELL"]           = True
-    if micro_sell:                             sell_score += 2; sell_cond["BTC_MICRO_BOS"]          = True
-    if strong_sell:                            sell_score += 4; sell_cond["BTC_STRONG_SELL_CANDLE"]  = True
-    if wt_sell:                                sell_score += 2; sell_cond["BTC_WAVETREND_SELL"]     = True
-    if pd_zone["premium"]:                     sell_score += 3; sell_cond["BTC_PREMIUM_ZONE"]       = True
-    if rsi < 45:                               sell_score += 2; sell_cond["BTC_RSI_BEARISH"]        = True
-    if adx > 20:                               sell_score += 2; sell_cond["BTC_ADX_STRENGTH"]       = True
-    if volma > 0 and volume > volma * 1.4:     sell_score += 4; sell_cond["BTC_VOLUME_SPIKE"]       = True
-    if bear_fvg and bear_ob:                   sell_score += 4; sell_cond["BTC_OB+FVG_CLUSTER"]     = True
-    if bos_sell and strong_sell:               sell_score += 4; sell_cond["BTC_BOS+DISPLACEMENT"]   = True
-    if bear_sweep and bear_fvg:                sell_score += 3; sell_cond["BTC_SWEEP+FVG_CLUSTER"]  = True
-    if bear_ob and pd_zone["premium"]:         sell_score += 3; sell_cond["BTC_OB+PREMIUM_CLUSTER"] = True
+    buy_score = 0; sell_score = 0
+    buy_cond  = {}; sell_cond = {}
 
-    if (
-        sell_score >= BTC_BREAKDOWN_MIN_SCORE
-        and (bear_fvg or bear_ob or bos_sell)
-        and strong_sell
-    ):
+    if rsi <= SCALP_RSI_BUY_MAX:  buy_score += 2;  buy_cond["RSI_OVERSOLD"]   = True
+    if micro_buy:                  buy_score += 3;  buy_cond["MICRO_BOS"]      = True
+    if bull_sweep:                 buy_score += 3;  buy_cond["LIQUIDITY_SWEEP"]= True
+    if bull_wick:                  buy_score += 2;  buy_cond["WICK_REJECTION"] = True
+    if wt_buy:                     buy_score += 2;  buy_cond["WAVETREND"]      = True
+    if bull_fvg:                   buy_score += 2;  buy_cond["FVG_SCALP"]      = True
+    if strong_buy:                 buy_score += 3;  buy_cond["STRONG_CANDLE"]  = True
+
+    if rsi >= SCALP_RSI_SELL_MIN:  sell_score += 2; sell_cond["RSI_OVERBOUGHT"] = True
+    if micro_sell:                  sell_score += 3; sell_cond["MICRO_BOS"]      = True
+    if bear_sweep:                  sell_score += 3; sell_cond["LIQUIDITY_SWEEP"]= True
+    if bear_wick:                   sell_score += 2; sell_cond["WICK_REJECTION"] = True
+    if wt_sell:                     sell_score += 2; sell_cond["WAVETREND"]      = True
+    if bear_fvg:                    sell_score += 2; sell_cond["FVG_SCALP"]      = True
+    if strong_sell:                 sell_score += 3; sell_cond["STRONG_CANDLE"]  = True
+
+    if buy_score >= SCALP_MIN_SCORE and buy_score > sell_score:
+        return "BUY",  buy_score, buy_cond
+    if sell_score >= SCALP_MIN_SCORE and sell_score > buy_score:
         return "SELL", sell_score, sell_cond
 
     return None, 0, {}
@@ -1186,7 +1189,10 @@ def adaptive_risk(session):
     return 1.1
 
 def get_dynamic_rr(symbol_key, regime):
-    return RR_PROFILE.get(symbol_key, {}).get(regime, MARKETS[symbol_key]["rr"])
+    rr = RR_PROFILE.get(symbol_key, {}).get(regime, MARKETS[symbol_key]["rr"])
+    if regime == "TREND":
+        rr = RR_PROFILE[symbol_key]["TREND"] + 0.2
+    return rr
 
 def get_signal_number(symbol_key, session):
     global _signal_counter
@@ -1207,18 +1213,12 @@ def get_signal_number(symbol_key, session):
 # SESSION FILTER
 # ============================================================
 def in_session(symbol_key):
-    h = datetime.now(timezone.utc).hour
-
-    if symbol_key == "BTC/USD":
-        return True, "24H"
-
-    if 8 <= h < 11:
-        return True, "London"
-    if 13 <= h < 15:
-        return True, "NY Killzone"
-    if 14 <= h < 16:
-        return True, "NY+London"
-
+    h    = datetime.now(timezone.utc).hour
+    s, e = MARKETS[symbol_key]["sessions"]
+    if not (s <= h < e): return False, "Closed"
+    if 8  <= h < 11: return True, "London"
+    if 13 <= h < 15: return True, "NY Killzone"
+    if 14 <= h < 16: return True, "NY+London"
     return False, "Closed"
 
 # ============================================================
@@ -1274,7 +1274,7 @@ def duplicate_signal(symbol_key, direction):
     now = time.time()
     duplicate_windows = {
         "XAU/USD": 3600, "NAS100": 5400, "EUR/USD": 3600,
-        "GBP/JPY": 3600, "BTC/USD": 1800,
+        "GBP/JPY": 3600, "BTC/USD": 3600,
     }
     cooldown = duplicate_windows.get(symbol_key, 3600)
     with signal_lock:
@@ -1331,7 +1331,6 @@ def smart_tp_target(df, symbol_key, direction, entry, sl):
 
 # ============================================================
 # ICT SL PLACEMENT + SMART TP
-# PATCH 6: returns None values when RR is below minimum
 # ============================================================
 def ict_calc_levels(price, atr, symbol_key, df, direction, rr):
     min_sl   = MARKETS[symbol_key]["min_sl"]
@@ -1363,10 +1362,6 @@ def ict_calc_levels(price, atr, symbol_key, df, direction, rr):
         tp = smart_tp_target(df, symbol_key, direction, price, sl)
         rr = round(abs(tp - price) / abs(price - sl), 2)
 
-    # PATCH 6: Reject if RR is below minimum after calculation
-    if rr < MIN_RR_ALLOWED:
-        return None, None, None, rr
-
     return round(sl, decimals), round(tp, decimals), round(sl_dist, decimals), rr
 
 # ============================================================
@@ -1385,23 +1380,53 @@ def lot_for_risk(price, sl, symbol_key, risk_multiplier=1.0):
     return round(max(0.01, min(lot, caps[symbol_key])), 3)
 
 # ============================================================
+# EXECUTE SCALP TRADE
+# ============================================================
+def execute_scalp_trade(symbol_key, df, direction, score, session, conditions):
+    price = float(df.iloc[-1]["close"])
+    atr   = float(df.iloc[-1]["atr"])
+    dec   = MARKETS[symbol_key]["decimals"]
+    rr    = SCALP_RR[symbol_key]
+
+    if direction == "BUY":
+        sl = price - max(atr * 0.8, MARKETS[symbol_key]["min_sl"] * 0.6)
+        tp = price + (price - sl) * rr
+    else:
+        sl = price + max(atr * 0.8, MARKETS[symbol_key]["min_sl"] * 0.6)
+        tp = price - (sl - price) * rr
+
+    sl = round(sl, dec)
+    tp = round(tp, dec)
+
+    cond_text = "\n".join([f"✅ {k}" for k, v in conditions.items() if v])
+
+    msg = (
+        f"⚡ *{SYSTEM_VERSION}* | SCALP SNIPER\n"
+        f"*{MARKETS[symbol_key]['mt5']}*\n\n"
+        f"🔥 *Action:* {direction} "
+        f"{'📈' if direction == 'BUY' else '📉'}\n"
+        f"🚀 *Signal Type:* SCALP_EXECUTION\n"
+        f"⭐ *Score:* {score}\n"
+        f"🏆 *Trade Quality:* ELITE SCALP\n"
+        f"⏱ *Timeframe:* 1M / 5M\n\n"
+        f"📍 *Entry:* {price:,.{dec}f}\n"
+        f"🛑 *SL:* {sl:,.{dec}f}\n"
+        f"🎯 *TP:* {tp:,.{dec}f}\n"
+        f"📊 *RR:* 1:{rr}\n\n"
+        f"⏰ *Session:* {session}\n\n"
+        f"✅ *Scalp Conditions:*\n"
+        f"{cond_text}\n\n"
+        f"⚡ QUICK EXECUTION MODE ACTIVE"
+    )
+
+    send_telegram(msg)
+
+# ============================================================
 # EXECUTE TRADE
-# PATCH 4: Hard RR filter after level calculation
-# PATCH 5: Minimum score filter
-# PATCH 7: Safe execution — abort if SL/TP is None
-# PATCH 8: Telegram message without Markdown formatting
 # ============================================================
 def execute_trade(symbol_key, df, direction, best, wizard_score,
                   sniper_score, macro_trend, session, trend,
                   regime, conditions, source, rr, mtf_trends):
-
-    # PATCH 5 — minimum score filter
-    if best < MIN_TOTAL_SCORE:
-        log.info(
-            f"REJECTED {symbol_key} score too weak "
-            f"({best} < {MIN_TOTAL_SCORE})"
-        )
-        return
 
     price = float(df.iloc[-1]["close"])
     atr   = float(df.iloc[-1]["atr"])
@@ -1416,19 +1441,6 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
 
     sl, tp, sl_dist, rr = ict_calc_levels(price, atr, symbol_key, df, direction, rr)
 
-    # PATCH 7 — abort if ict_calc_levels returned None (RR too low inside calc)
-    if sl is None or tp is None:
-        log.info(f"REJECTED {symbol_key} TP/SL invalid (RR too low inside calc: 1:{rr})")
-        return
-
-    # PATCH 4 — hard RR filter after level calculation
-    if rr < MIN_RR_ALLOWED:
-        log.info(
-            f"REJECTED {symbol_key} RR too low "
-            f"(1:{rr} < 1:{MIN_RR_ALLOWED})"
-        )
-        return
-
     risk_mult      = adaptive_risk(session)
     lot            = lot_for_risk(price, sl, symbol_key, risk_mult)
     quality        = trade_quality(best)
@@ -1440,9 +1452,9 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
                session, regime, timeframe, signal_type)
     sync_real_pnl()
 
-    cond_text    = "\n".join([f"[OK] {k}" for k, v in conditions.items() if v])
-    action_emoji = "UP" if direction == "BUY" else "DN"
-    priority_tag = "[PRIORITY MARKET]\n" if symbol_key in PRIORITY_MARKETS else ""
+    cond_text    = "\n".join([f"✅ {k}" for k, v in conditions.items() if v])
+    action_emoji = "📈" if direction == "BUY" else "📉"
+    priority_tag = "🔱 *PRIORITY MARKET*\n" if symbol_key in PRIORITY_MARKETS else ""
     mtf_str      = " | ".join([f"{tf}: {tr[:4]}" for tf, tr in mtf_trends.items()])
 
     tp1 = (
@@ -1451,41 +1463,41 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         else round(price - (price - tp) * 0.5, dec)
     )
 
-    # PATCH 8 — plain text message (no Markdown asterisks or underscores)
     msg = (
-        f"ICT SNIPER | {SYSTEM_VERSION}\n"
-        f"{MARKETS[symbol_key]['mt5']} | {MARKETS[symbol_key]['tier']}\n"
+        f"🎯 *{SYSTEM_VERSION}* | ICT SNIPER\n"
+        f"*{MARKETS[symbol_key]['mt5']}* | "
+        f"⭐⭐⭐⭐⭐ {MARKETS[symbol_key]['tier']}\n"
         f"{priority_tag}\n"
-        f"Action: {direction} [{action_emoji}]\n"
-        f"Signal #: {signal_num}\n"
-        f"Entry Type: {entry_type}\n"
-        f"Signal Type: {signal_type}\n"
-        f"Total Score: {best}\n"
-        f"Trade Quality: {quality}\n"
-        f"Macro Trend: {macro_trend}\n"
-        f"MTF Trend: {mtf_str}\n"
-        f"Sniper Score: {sniper_score}\n"
-        f"Wizard AI Score: {wizard_score if ENABLE_WIZARD_AI else 'OFF'}\n"
-        f"Regime: {regime}\n"
-        f"Timeframe: {timeframe}\n"
-        f"Market Bias: {MARKETS[symbol_key]['bias']}\n\n"
-        f"Entry: {price:,.{dec}f}\n"
-        f"SL: {sl:,.{dec}f}\n"
-        f"TP1 (1:1): {tp1:,.{dec}f}\n"
-        f"Smart TP (1:{rr}): {tp:,.{dec}f}\n"
-        f"Actual RR: 1:{rr}\n"
-        f"TP Model: Previous Structure Liquidity Target\n\n"
-        f"RSI: {rsi:.1f}\n"
-        f"ADX: {adx:.1f}\n"
-        f"Trend: {trend}\n"
-        f"Session: {session}\n"
-        f"Mode: ICT CONCEPT ENGINE\n"
-        f"Source: {source}\n\n"
-        f"Lot: {lot}\n\n"
-        f"ICT Conditions:\n"
+        f"🔥 *Action:* {direction} {action_emoji}\n"
+        f"🎯 *Signal #:* {signal_num}\n"
+        f"📍 *Entry Type:* {entry_type}\n"
+        f"🚀 *Signal Type:* {signal_type}\n"
+        f"⭐ *Total Score:* {best}\n"
+        f"🏆 *Trade Quality:* {quality}\n"
+        f"🌍 *Macro Trend:* {macro_trend}\n"
+        f"🧠 *MTF Trend:* {mtf_str}\n"
+        f"🎯 *Sniper Score:* {sniper_score}\n"
+        f"🧠 *Wizard AI Score:* {wizard_score if ENABLE_WIZARD_AI else 'OFF'}\n"
+        f"🧠 *Regime:* {regime}\n"
+        f"⏱ *Timeframe:* {timeframe}\n"
+        f"📊 *Market Bias:* {MARKETS[symbol_key]['bias']}\n\n"
+        f"📍 *Entry:* {price:,.{dec}f}\n"
+        f"🛑 *SL:* {sl:,.{dec}f}\n"
+        f"🎯 *TP1 (1:1):* {tp1:,.{dec}f}\n"
+        f"🎯 *Smart TP (1:{rr}):* {tp:,.{dec}f}\n"
+        f"📊 *Actual RR:* 1:{rr}\n"
+        f"🎯 *TP Model:* Previous Structure Liquidity Target\n\n"
+        f"📈 *RSI:* {rsi:.1f}\n"
+        f"📉 *ADX:* {adx:.1f}\n"
+        f"🌍 *Trend:* {trend}\n"
+        f"⏰ *Session:* {session}\n"
+        f"🧠 *Mode:* ICT CONCEPT ENGINE\n"
+        f"📡 *Source:* {source}\n\n"
+        f"💵 *Lot:* {lot}\n\n"
+        f"✅ *ICT Conditions:*\n"
         f"{cond_text}\n\n"
-        f"MSS + FVG + OB ENGINE ACTIVE\n"
-        f"ULTIMATE ICT SUPREME - 2026 ELITE"
+        f"🛡 *MSS + FVG + OB ENGINE ACTIVE*\n"
+        f"⚡ *ULTIMATE ICT SUPREME — 2026 ELITE*"
     )
 
     send_telegram(msg)
@@ -1502,239 +1514,148 @@ def process_symbol(symbol_key):
     log.info(f"Scanning {symbol_key}")
 
     if _daily_signal_count[symbol_key] >= MAX_SIGNALS_PER_DAY[symbol_key]:
-        log.info(f"REJECTED {symbol_key} daily cap reached")
-        return
+        log.info(f"REJECTED {symbol_key} daily cap reached"); return
 
-    if weekend_block(symbol_key):
-        log.info(f"REJECTED {symbol_key} weekend block active")
-        return
-
-    if daily_loss_lock():
-        log.info(f"REJECTED {symbol_key} daily loss lock active")
-        return
-
-    if loss_streak_lock():
-        log.info(f"REJECTED {symbol_key} consecutive loss lock active")
-        return
+    if weekend_block(symbol_key): return
+    if daily_loss_lock():         return
+    if loss_streak_lock():        return
 
     watchdog()
     rotate_log()
 
     ok, session = in_session(symbol_key)
-
-    if not ok:
-        log.info(f"REJECTED {symbol_key} outside active trading session")
-        return
+    if not ok: return
 
     if session not in ALLOWED_SESSIONS:
-        log.info(f"REJECTED {symbol_key} session not allowed ({session})")
-        return
+        log.info(f"REJECTED {symbol_key} outside session ({session})"); return
 
-    if economic_news_block():
-        log.info(f"REJECTED {symbol_key} economic news block active")
-        return
+    if economic_news_block(): return
 
     df, source = get_entry_data(symbol_key)
-
-    if df is None:
-        log.info(f"REJECTED {symbol_key} no market data retrieved")
-        return
-
-    if len(df) < 100:
-        log.info(f"REJECTED {symbol_key} insufficient raw market data ({len(df)} candles)")
-        return
+    if df is None or len(df) < 100: return
 
     spread = get_spread(df)
-
     if spread_too_high(symbol_key, spread):
-        log.info(f"REJECTED {symbol_key} spread too high ({spread:.6f})")
-        return
+        log.info(f"REJECTED {symbol_key} spread {spread:.6f}"); return
 
     df = add_ind(df)
-
-    if df is None:
-        log.info(f"REJECTED {symbol_key} indicator processing failed")
-        return
-
-    if len(df) < 80:
-        log.info(f"REJECTED {symbol_key} insufficient indicator data ({len(df)} candles)")
-        return
+    if df is None or len(df) < 80:
+        log.info(f"REJECTED {symbol_key} insufficient data after indicators"); return
 
     if volatility_danger(df, symbol_key):
-        log.info(f"REJECTED {symbol_key} volatility danger")
-        return
+        log.info(f"REJECTED {symbol_key} extreme volatility danger"); return
 
     price = float(df.iloc[-1]["close"])
     atr   = float(df.iloc[-1]["atr"])
 
-    if price <= 0:
-        log.info(f"REJECTED {symbol_key} invalid price ({price})")
-        return
-
+    if price <= 0: return
     if not (MARKETS[symbol_key]["price_lo"] <= price <= MARKETS[symbol_key]["price_hi"]):
-        log.info(f"REJECTED {symbol_key} price out of range ({price})")
-        return
+        log.info(f"REJECTED {symbol_key} price out of range"); return
 
     trend  = get_trend(symbol_key)
     regime = detect_market_regime(df)
 
+    htf_bias = detect_htf_bias(symbol_key, df)
+
     macro_trend = (
-        "BULL"
-        if weekly_trend(df, "BUY") and daily_trend(df, "BUY")
-        else "BEAR"
-        if weekly_trend(df, "SELL") and daily_trend(df, "SELL")
+        "BULL"    if weekly_trend(df, "BUY")  and daily_trend(df, "BUY")
+        else "BEAR" if weekly_trend(df, "SELL") and daily_trend(df, "SELL")
         else "NEUTRAL"
     )
 
     mtf_trends = ict_mtf_trend(df)
 
+    # Primary ICT signal engine
     direction, ict_score, conditions = ict_signal_engine(df, symbol_key, session)
 
-    if (
-        (direction is None or ict_score == 0)
-        and symbol_key == "BTC/USD"
-        and ENABLE_BTC_AGGRESSIVE_REVERSAL
-    ):
-        log.info(f"{symbol_key} primary ICT failed — checking BTC aggressive reversal")
-        direction, ict_score, conditions = btc_aggressive_reversal(df, symbol_key)
-
-    if (
-        (direction is None or ict_score == 0)
-        and symbol_key == "BTC/USD"
-        and ENABLE_BTC_BREAKDOWN_MODE
-    ):
-        log.info(f"{symbol_key} reversal failed — checking BTC bearish breakdown")
-        direction, ict_score, conditions = btc_bearish_breakdown(df, symbol_key)
-
+    # Continuation retest fallback
     if direction is None or ict_score == 0:
-        log.info(f"{symbol_key} no primary setup — checking continuation retest")
         direction, ict_score, conditions = detect_continuation_retest(df, symbol_key)
 
+    # Scalp fallback
     if direction is None or ict_score == 0:
-        log.info(f"REJECTED {symbol_key} no valid ICT / BTC / continuation setup")
+        direction, ict_score, conditions = scalp_signal_engine(df, symbol_key, session)
+
+        if direction:
+            now = time.time()
+
+            if now - _scalp_signal_sent[symbol_key] < SCALP_SIGNAL_COOLDOWN:
+                log.info(f"SCALP REJECTED {symbol_key} cooldown")
+                return
+
+            if _scalp_signal_count[symbol_key] >= SCALP_MAX_SIGNALS_PER_SESSION:
+                log.info(f"SCALP REJECTED {symbol_key} session cap")
+                return
+
+            _scalp_signal_sent[symbol_key]  = now
+            _scalp_signal_count[symbol_key] += 1
+
+            execute_scalp_trade(symbol_key, df, direction, ict_score, session, conditions)
+            return
+
+        log.info(f"REJECTED {symbol_key} no valid ICT, continuation, or scalp setup")
         return
 
-    log.info(
-        f"{symbol_key} SIGNAL DETECTED | "
-        f"Direction: {direction} | "
-        f"ICT Score: {ict_score} | "
-        f"Regime: {regime} | "
-        f"Session: {session}"
-    )
+    log.info(f"{symbol_key} ICT Signal | Dir: {direction} | "
+             f"Score: {ict_score} | Regime: {regime} | Session: {session}")
 
-    if (
-        "FVG_RETEST" in conditions
-        or "OB_RETEST" in conditions
-        or "BTC_LIQUIDITY_SWEEP" in conditions
-        or "BTC_BEAR_FVG" in conditions
-        or "BTC_BEAR_OB" in conditions
-    ):
-        min_ict = 10
+    # HTF bias blocker
+    if htf_bias == "BULL" and direction == "SELL":
+        log.info(f"REJECTED {symbol_key} HTF bullish blocker")
+        return
+
+    if htf_bias == "BEAR" and direction == "BUY":
+        log.info(f"REJECTED {symbol_key} HTF bearish blocker")
+        return
+
+    if "FVG_RETEST" in conditions or "OB_RETEST" in conditions:
+        min_ict = 12
     else:
         min_ict = SESSION_THRESHOLDS.get(session, 16)
-
     if ict_score < min_ict:
-        log.info(
-            f"REJECTED {symbol_key} ICT score below threshold "
-            f"({ict_score} < {min_ict})"
-        )
-        return
+        log.info(f"REJECTED {symbol_key} ICT score {ict_score} < {min_ict}"); return
 
     if VOLATILITY_KILL and not quantum_volatility_ok(df):
-        log.info(f"REJECTED {symbol_key} volatility kill filter")
-        return
+        log.info(f"REJECTED {symbol_key} volatility filter"); return
 
-    if (
-        FALSE_BREAK_FILTER
-        and regime in ["TREND", "BREAKOUT"]
-        and symbol_key != "BTC/USD"
-    ):
+    if FALSE_BREAK_FILTER and regime in ["TREND", "BREAKOUT"]:
         if not false_breakout_filter(df, direction):
-            log.info(f"REJECTED {symbol_key} false breakout filter")
-            return
+            log.info(f"REJECTED {symbol_key} false breakout filter"); return
 
     wizard_score = 0
-
     if ENABLE_WIZARD_AI:
         wizard_pass, wizard_score = wizard_ai_confirmation(df, symbol_key, direction)
-
-        if symbol_key == "BTC/USD":
-            if (
-                "BTC_LIQUIDITY_SWEEP" in conditions
-                or "BTC_BEAR_FVG"     in conditions
-                or "BTC_BEAR_OB"      in conditions
-                or "BTC_BOS_SELL"     in conditions
-            ):
-                wizard_pass = True
-                log.info(f"{symbol_key} Wizard AI bypass activated")
-
         if not wizard_pass:
-            log.info(f"REJECTED {symbol_key} Wizard AI failed (Score: {wizard_score})")
-            return
-
+            log.info(f"REJECTED {symbol_key} Wizard AI | Score: {wizard_score}"); return
         ict_score += int(wizard_score * 0.25)
 
     sniper_score = ultra_sniper_score(df, symbol_key, direction)
     ict_score   += int(sniper_score * 0.30)
 
-    if symbol_key == "BTC/USD":
-        if "BTC_BEAR_FVG"        in conditions: ict_score += 2
-        if "BTC_BEAR_OB"         in conditions: ict_score += 2
-        if "BTC_BOS_SELL"        in conditions: ict_score += 2
-        if "BTC_VOLUME_SPIKE"    in conditions: ict_score += 2
-        if "BTC_LIQUIDITY_SWEEP" in conditions: ict_score += 2
-
-    if regime != "RANGE" and symbol_key not in ["XAU/USD", "BTC/USD"]:
+    if regime != "RANGE" and symbol_key != "XAU/USD":
         if trend == "BULL" and direction == "SELL":
-            log.info(f"REJECTED {symbol_key} countertrend SELL blocked")
-            return
+            log.info(f"REJECTED {symbol_key} countertrend SELL"); return
         if trend == "BEAR" and direction == "BUY":
-            log.info(f"REJECTED {symbol_key} countertrend BUY blocked")
-            return
+            log.info(f"REJECTED {symbol_key} countertrend BUY"); return
 
-    if correlated_signal_block(symbol_key):
-        log.info(f"REJECTED {symbol_key} correlation blocker")
-        return
-
-    if duplicate_signal(symbol_key, direction):
-        log.info(f"REJECTED {symbol_key} duplicate signal")
-        return
+    if correlated_signal_block(symbol_key): return
+    if duplicate_signal(symbol_key, direction): return
 
     now = time.time()
+    if now - _signal_sent[symbol_key] < SIGNAL_COOLDOWN:
+        remaining = int(SIGNAL_COOLDOWN - (now - _signal_sent[symbol_key]))
+        log.info(f"REJECTED {symbol_key} cooldown {remaining}s"); return
 
-    symbol_cooldown = 1800 if symbol_key == "BTC/USD" else SIGNAL_COOLDOWN
-
-    if now - _signal_sent[symbol_key] < symbol_cooldown:
-        remaining = int(symbol_cooldown - (now - _signal_sent[symbol_key]))
-        log.info(f"REJECTED {symbol_key} cooldown active ({remaining}s remaining)")
-        return
-
-    if symbol_key == "BTC/USD":
-        if "BTC_BEAR_FVG" in conditions or "BTC_BEAR_OB" in conditions:
-            rr = BTC_BREAKDOWN_RR
-        elif "BTC_LIQUIDITY_SWEEP" in conditions:
-            rr = BTC_REVERSAL_RR
-        else:
-            rr = get_dynamic_rr(symbol_key, regime)
-    else:
-        rr = get_dynamic_rr(symbol_key, regime)
+    rr = get_dynamic_rr(symbol_key, regime)
 
     with signal_lock:
         _signal_sent[symbol_key]        = now
         _daily_signal_count[symbol_key] += 1
 
-    log.info(
-        f"EXECUTING {symbol_key} {direction} | "
-        f"Final Score: {ict_score} | "
-        f"Wizard: {wizard_score} | "
-        f"Sniper: {sniper_score} | "
-        f"RR: {rr}"
-    )
-
     execute_trade(
         symbol_key, df, direction, ict_score, wizard_score,
         sniper_score, macro_trend, session, trend,
-        regime, conditions, source, rr, mtf_trends,
+        regime, conditions, source, rr, mtf_trends
     )
 
 # ============================================================
@@ -1743,30 +1664,31 @@ def process_symbol(symbol_key):
 def main():
     log.info(f"{SYSTEM_VERSION} STARTED")
     send_telegram(
-        f"{SYSTEM_VERSION} LIVE\n\n"
-        f"Markets Active:\n"
-        f"XAU/USD | NAS100 | EUR/USD | GBP/JPY | BTC/USD\n\n"
-        f"ICT ENGINE ACTIVE:\n"
-        f"[OK] Market Structure Shift (MSS)\n"
-        f"[OK] Fair Value Gap (FVG)\n"
-        f"[OK] Order Block (OB)\n"
-        f"[OK] Liquidity Sweep\n"
-        f"[OK] MTF Trend 5M/1H/4H/12H\n"
-        f"[OK] Premium & Discount Zones\n"
-        f"[OK] ICT SL Placement (OB/FVG based)\n"
-        f"[OK] Smart TP - Structure Liquidity Target\n"
-        f"[OK] Dynamic RR (auto-calculated)\n"
-        f"[OK] Continuation Retest Engine\n"
-        f"[OK] BTC Aggressive Reversal Mode\n"
-        f"[OK] BTC Bearish Breakdown Mode\n"
-        f"[OK] BTC Score Booster\n"
-        f"[OK] Wizard AI Filter (min score: {WIZARD_MIN_SCORE})\n"
-        f"[OK] Min RR Filter: 1:{MIN_RR_ALLOWED}\n"
-        f"[OK] Min Total Score: {MIN_TOTAL_SCORE}\n"
-        f"[OK] Ultra Sniper Score\n"
-        f"[OK] Correlation Blocker\n"
-        f"[OK] False Breakout Filter\n"
-        f"ULTIMATE ICT SUPREME 2026 ELITE - LIVE"
+        f"🚀 *{SYSTEM_VERSION} LIVE*\n\n"
+        f"📊 *Markets Active:*\n"
+        f"🥇 XAU/USD\n📈 NAS100\n💶 EUR/USD\n💷 GBP/JPY\n₿ BTC/USD\n\n"
+        f"🔱 All Markets Priority\n\n"
+        f"🧠 *ICT ENGINE ACTIVE:*\n"
+        f"✅ Market Structure Shift (MSS)\n"
+        f"✅ Fair Value Gap (FVG)\n"
+        f"✅ Order Block (OB)\n"
+        f"✅ Breaker Order Block (HTF Bias)\n"
+        f"✅ Liquidity Sweep\n"
+        f"✅ MTF Trend 5M/1H/4H/12H\n"
+        f"✅ Premium & Discount Zones\n"
+        f"✅ ICT SL Placement (OB/FVG based)\n"
+        f"✅ Smart TP — Structure Liquidity Target\n"
+        f"✅ Dynamic RR (auto-calculated)\n"
+        f"✅ Continuation Retest Engine\n"
+        f"✅ Scalp Sniper Engine\n"
+        f"✅ Wizard AI Filter\n"
+        f"✅ Ultra Sniper Score\n"
+        f"✅ WaveTrend Confirmation\n"
+        f"✅ HTF Bias Directional Filter\n"
+        f"🔒 Correlation Blocker\n"
+        f"🚫 False Breakout Filter\n"
+        f"🧵 Thread Safe\n"
+        f"⚡ ULTIMATE ICT SUPREME 2026 ELITE — LIVE"
     )
 
     while True:
