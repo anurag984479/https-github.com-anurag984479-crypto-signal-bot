@@ -64,8 +64,19 @@ SCALP_RR = {
     "GBP/JPY": 2.0, "BTC/USD": 2.0,
 }
 
-SCALP_SIGNAL_COOLDOWN = 900
+SCALP_SIGNAL_COOLDOWN         = 900
 SCALP_MAX_SIGNALS_PER_SESSION = 4
+
+# ============================================================
+# EXPLOSION ENGINE CONFIG
+# ============================================================
+CANDLE_EXPLOSION_MULTIPLIER = 1.8
+MOMENTUM_VOLUME_FACTOR      = 1.5
+EMA_RECLAIM_BUFFER          = 0.15
+STRONG_CLOSE_PERCENT        = 0.75
+MICRO_BREAK_LOOKBACK        = 6
+EXPANSION_SCORE_BONUS       = 4
+ENABLE_EXPLOSION_ENGINE     = True
 
 MARKETS = {
     "XAU/USD": {
@@ -530,29 +541,25 @@ def detect_breaker_order_block(df, symbol_key, htf_bias):
     lookback = MARKET_STRUCTURE[symbol_key]["ob_lookback"]
     if len(df) < lookback + 5:
         return None, None, None
-    recent = df.tail(lookback + 5)
-    atr = float(df.iloc[-1]["atr"])
+    recent     = df.tail(lookback + 5)
+    atr        = float(df.iloc[-1]["atr"])
     last_close = float(df.iloc[-1]["close"])
 
     if htf_bias == "BULL":
         for i in range(len(recent) - 4, 2, -1):
             candle = recent.iloc[i]
             if float(candle["close"]) < float(candle["open"]):
-                ob_high = float(candle["high"])
-                ob_low  = float(candle["low"])
+                ob_high = float(candle["high"]); ob_low = float(candle["low"])
                 if last_close > ob_high + atr * 0.05:
-                    sl = ob_low - atr * 0.10
-                    return "BUY", ob_high, sl
+                    return "BUY", ob_high, ob_low - atr * 0.10
 
     elif htf_bias == "BEAR":
         for i in range(len(recent) - 4, 2, -1):
             candle = recent.iloc[i]
             if float(candle["close"]) > float(candle["open"]):
-                ob_high = float(candle["high"])
-                ob_low  = float(candle["low"])
+                ob_high = float(candle["high"]); ob_low = float(candle["low"])
                 if last_close < ob_low - atr * 0.05:
-                    sl = ob_high + atr * 0.10
-                    return "SELL", ob_low, sl
+                    return "SELL", ob_low, ob_high + atr * 0.10
 
     return None, None, None
 
@@ -605,48 +612,100 @@ def smart_ai_short_term_trend(df):
 # EMA 8 / 33 PULLBACK CONFIRMATION
 # ============================================================
 def ema_pullback_confirmation(df, direction):
-    """
-    Institutional EMA trend continuation model:
-    EMA8  = momentum
-    EMA33 = pullback institutional zone
-
-    BUY:  EMA8 > EMA33, prev candle taps EMA33, prev candle bullish,
-          current candle breaks previous high
-    SELL: EMA8 < EMA33, prev candle taps EMA33, prev candle bearish,
-          current candle breaks previous low
-    """
     if df is None or len(df) < 3:
         return False
-
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
-
-    ema8  = float(last["ema8"])
-    ema33 = float(last["ema33"])
-
-    prev_open  = float(prev["open"])
-    prev_close = float(prev["close"])
-    prev_high  = float(prev["high"])
-    prev_low   = float(prev["low"])
+    last = df.iloc[-1]; prev = df.iloc[-2]
+    ema8  = float(last["ema8"]); ema33 = float(last["ema33"])
+    prev_open  = float(prev["open"]);  prev_close = float(prev["close"])
+    prev_high  = float(prev["high"]);  prev_low   = float(prev["low"])
     last_close = float(last["close"])
+    if direction == "BUY":
+        return (ema8 > ema33 and prev_low <= ema33 and
+                prev_close > prev_open and last_close > prev_high)
+    if direction == "SELL":
+        return (ema8 < ema33 and prev_high >= ema33 and
+                prev_close < prev_open and last_close < prev_low)
+    return False
+
+# ============================================================
+# EXPLOSIVE MOVE ENGINE
+# ============================================================
+def detect_explosive_move(df, direction):
+    """
+    Detects large displacement candles with BOS, EMA reclaim,
+    strong close, and volume spike.
+    """
+    if len(df) < 20:
+        return False, {}
+
+    last = df.iloc[-1]; prev = df.iloc[-2]
+    atr  = float(last["atr"])
+
+    body         = abs(float(last["close"]) - float(last["open"]))
+    candle_range = float(last["high"]) - float(last["low"])
+
+    if candle_range == 0:
+        return False, {}
+
+    vol       = float(last["volume"])
+    volma     = float(df["volume"].rolling(10).mean().iloc[-1])
+    vol_spike = volma > 0 and vol > volma * MOMENTUM_VOLUME_FACTOR
+
+    ema50 = float(last["ema50"])
+
+    recent_high = float(df["high"].rolling(MICRO_BREAK_LOOKBACK).max().iloc[-2])
+    recent_low  = float(df["low"].rolling(MICRO_BREAK_LOOKBACK).min().iloc[-2])
+
+    bullish_break     = float(last["close"]) > recent_high
+    bearish_break     = float(last["close"]) < recent_low
+    bullish_ema_reclaim = (float(last["close"]) > ema50 and float(prev["close"]) < ema50)
+    bearish_ema_reclaim = (float(last["close"]) < ema50 and float(prev["close"]) > ema50)
+    strong_bull_close = (float(last["close"]) - float(last["low"])) / candle_range > STRONG_CLOSE_PERCENT
+    strong_bear_close = (float(last["high"]) - float(last["close"])) / candle_range > STRONG_CLOSE_PERCENT
+    explosive_body    = body > atr * CANDLE_EXPLOSION_MULTIPLIER
 
     if direction == "BUY":
-        return (
-            ema8 > ema33 and
-            prev_low <= ema33 and
-            prev_close > prev_open and
-            last_close > prev_high
-        )
+        valid = (explosive_body and bullish_break and
+                 bullish_ema_reclaim and strong_bull_close and vol_spike)
+        conditions = {
+            "EXPLOSION_CANDLE": explosive_body,
+            "MICRO_BOS":        bullish_break,
+            "EMA_RECLAIM":      bullish_ema_reclaim,
+            "STRONG_CLOSE":     strong_bull_close,
+            "VOLUME_SPIKE":     vol_spike,
+        }
+    else:
+        valid = (explosive_body and bearish_break and
+                 bearish_ema_reclaim and strong_bear_close and vol_spike)
+        conditions = {
+            "EXPLOSION_CANDLE": explosive_body,
+            "MICRO_BOS":        bearish_break,
+            "EMA_RECLAIM":      bearish_ema_reclaim,
+            "STRONG_CLOSE":     strong_bear_close,
+            "VOLUME_SPIKE":     vol_spike,
+        }
 
-    if direction == "SELL":
-        return (
-            ema8 < ema33 and
-            prev_high >= ema33 and
-            prev_close < prev_open and
-            last_close < prev_low
-        )
+    return valid, conditions
 
-    return False
+def avoid_late_entry(df):
+    """Prevents chasing after overextended candle (body > 3x ATR)."""
+    if len(df) < 2:
+        return True
+    last = df.iloc[-1]
+    body = abs(float(last["close"]) - float(last["open"]))
+    return body <= float(last["atr"]) * 3
+
+def clean_conditions(conditions):
+    formatted = []
+    for k, v in conditions.items():
+        if v:
+            if k == "EXPLOSION_CANDLE": formatted.append("⚡ EXPLOSION CANDLE")
+            elif k == "MICRO_BOS":      formatted.append("✅ MICRO BOS")
+            elif k == "EMA_RECLAIM":    formatted.append("📈 EMA RECLAIM")
+            elif k == "STRONG_CLOSE":   formatted.append("🔥 STRONG CLOSE")
+            elif k == "VOLUME_SPIKE":   formatted.append("📊 VOLUME SPIKE")
+            else:                       formatted.append(f"✅ {k.replace('_', ' ')}")
+    return "\n".join(formatted)
 
 # ============================================================
 # LIQUIDITY SWEEP
@@ -843,13 +902,10 @@ def detect_htf_bias(symbol_key, df):
     if df is None or len(df) < 200:
         return "NEUTRAL"
     last   = df.iloc[-1]
-    ema50  = float(last["ema50"])
-    ema200 = float(last["ema200"])
+    ema50  = float(last["ema50"]); ema200 = float(last["ema200"])
     close  = float(last["close"])
-    if close > ema50 and ema50 > ema200:
-        return "BULL"
-    elif close < ema50 and ema50 < ema200:
-        return "BEAR"
+    if close > ema50 and ema50 > ema200: return "BULL"
+    elif close < ema50 and ema50 < ema200: return "BEAR"
     return "NEUTRAL"
 
 # ============================================================
@@ -1004,6 +1060,15 @@ def ict_signal_engine(df, symbol_key, session):
     if not buy_ict_valid:  buy_score  = 0; buy_cond  = {}
     if not sell_ict_valid: sell_score = 0; sell_cond = {}
 
+    # Explosion engine boost
+    if ENABLE_EXPLOSION_ENGINE:
+        exp_buy,  exp_cond_buy  = detect_explosive_move(df, "BUY")
+        exp_sell, exp_cond_sell = detect_explosive_move(df, "SELL")
+        if exp_buy  and buy_score  > 0:
+            buy_score  += EXPANSION_SCORE_BONUS; buy_cond.update(exp_cond_buy)
+        if exp_sell and sell_score > 0:
+            sell_score += EXPANSION_SCORE_BONUS; sell_cond.update(exp_cond_sell)
+
     if buy_score == 0 and sell_score == 0:
         return None, 0, {}
 
@@ -1036,31 +1101,38 @@ def detect_continuation_retest(df, symbol_key):
         df, symbol_key, htf_bias
     )
 
-    buy_score = 0
-    buy_cond  = {}
+    buy_score = 0; buy_cond = {}
 
     if ict_trend_aligned(mtf_trends, "BUY"):
-        if bull_fvg:   buy_score += 4; buy_cond["FVG_RETEST"]        = True
-        if bull_ob:    buy_score += 3; buy_cond["OB_RETEST"]          = True
-        if rsi > 50:   buy_score += 2; buy_cond["RSI_BULLISH"]        = True
-        if adx > 22:   buy_score += 2; buy_cond["ADX_STRENGTH"]       = True
-        if strong_buy: buy_score += 3; buy_cond["REJECTION_CANDLE"]   = True
+        if bull_fvg:   buy_score += 4; buy_cond["FVG_RETEST"]             = True
+        if bull_ob:    buy_score += 3; buy_cond["OB_RETEST"]               = True
+        if rsi > 50:   buy_score += 2; buy_cond["RSI_BULLISH"]             = True
+        if adx > 22:   buy_score += 2; buy_cond["ADX_STRENGTH"]            = True
+        if strong_buy: buy_score += 3; buy_cond["REJECTION_CANDLE"]        = True
         if breaker_dir == "BUY":
-            buy_score += 6; buy_cond["BREAKER_OB_CONFIRMATION"] = True
-        if ema_buy:    buy_score += 4; buy_cond["EMA_PULLBACK"]       = True
+            buy_score += 6; buy_cond["BREAKER_OB_CONFIRMATION"]            = True
+        if ema_buy:    buy_score += 4; buy_cond["EMA_PULLBACK"]            = True
 
-    sell_score = 0
-    sell_cond  = {}
+    sell_score = 0; sell_cond = {}
 
     if ict_trend_aligned(mtf_trends, "SELL"):
-        if bear_fvg:    sell_score += 4; sell_cond["FVG_RETEST"]       = True
-        if bear_ob:     sell_score += 3; sell_cond["OB_RETEST"]         = True
-        if rsi < 50:    sell_score += 2; sell_cond["RSI_BEARISH"]       = True
-        if adx > 22:    sell_score += 2; sell_cond["ADX_STRENGTH"]      = True
-        if strong_sell: sell_score += 3; sell_cond["REJECTION_CANDLE"]  = True
+        if bear_fvg:    sell_score += 4; sell_cond["FVG_RETEST"]           = True
+        if bear_ob:     sell_score += 3; sell_cond["OB_RETEST"]             = True
+        if rsi < 50:    sell_score += 2; sell_cond["RSI_BEARISH"]           = True
+        if adx > 22:    sell_score += 2; sell_cond["ADX_STRENGTH"]          = True
+        if strong_sell: sell_score += 3; sell_cond["REJECTION_CANDLE"]      = True
         if breaker_dir == "SELL":
-            sell_score += 6; sell_cond["BREAKER_OB_CONFIRMATION"] = True
-        if ema_sell:    sell_score += 4; sell_cond["EMA_PULLBACK"]      = True
+            sell_score += 6; sell_cond["BREAKER_OB_CONFIRMATION"]           = True
+        if ema_sell:    sell_score += 4; sell_cond["EMA_PULLBACK"]          = True
+
+    # Explosion boost
+    if ENABLE_EXPLOSION_ENGINE:
+        exp_buy,  exp_cond_buy  = detect_explosive_move(df, "BUY")
+        exp_sell, exp_cond_sell = detect_explosive_move(df, "SELL")
+        if exp_buy  and buy_score  > 0:
+            buy_score  += EXPANSION_SCORE_BONUS; buy_cond.update(exp_cond_buy)
+        if exp_sell and sell_score > 0:
+            sell_score += EXPANSION_SCORE_BONUS; sell_cond.update(exp_cond_sell)
 
     if buy_score >= 12 and buy_score > sell_score:
         return "BUY",  buy_score, buy_cond
@@ -1080,16 +1152,14 @@ def scalp_signal_engine(df, symbol_key, session):
         return None, 0, {}
 
     last = df.iloc[-1]
-    adx  = float(last["adx"])
-    rsi  = float(last["rsi"])
+    adx  = float(last["adx"]); rsi = float(last["rsi"])
 
     if adx < SCALP_ADX_MIN or adx > SCALP_ADX_MAX:
         return None, 0, {}
 
     bull_sweep, bear_sweep   = detect_liquidity_sweep(df, symbol_key)
     bull_wick,  bear_wick    = detect_wick_rejection(df, float(last["atr"]), symbol_key)
-    micro_buy  = micro_bos(df, "BUY")
-    micro_sell = micro_bos(df, "SELL")
+    micro_buy  = micro_bos(df, "BUY"); micro_sell = micro_bos(df, "SELL")
     wt_buy     = wavetrend_confirmation(df, "BUY")
     wt_sell    = wavetrend_confirmation(df, "SELL")
     bull_fvg, bear_fvg, _, _ = detect_fvg(df, symbol_key)
@@ -1118,6 +1188,13 @@ def scalp_signal_engine(df, symbol_key, session):
     if bear_fvg:                    sell_score += 2; sell_cond["FVG_SCALP"]      = True
     if strong_sell:                 sell_score += 3; sell_cond["STRONG_CANDLE"]  = True
     if ema_sell:                    sell_score += 4; sell_cond["EMA_PULLBACK"]   = True
+
+    # Explosion boost
+    if ENABLE_EXPLOSION_ENGINE:
+        exp_buy,  exp_cond_buy  = detect_explosive_move(df, "BUY")
+        exp_sell, exp_cond_sell = detect_explosive_move(df, "SELL")
+        if exp_buy:  buy_score  += EXPANSION_SCORE_BONUS; buy_cond.update(exp_cond_buy)
+        if exp_sell: sell_score += EXPANSION_SCORE_BONUS; sell_cond.update(exp_cond_sell)
 
     if buy_score >= SCALP_MIN_SCORE and buy_score > sell_score:
         return "BUY",  buy_score, buy_cond
@@ -1366,29 +1443,21 @@ def smart_tp_target(df, symbol_key, direction, entry, sl):
     if direction == "BUY":
         candidates = []
         highs = recent["high"][recent["high"] > entry].sort_values().unique()
-        for h in highs:
-            candidates.append(float(h))
-        if supply_zone and supply_zone > entry:
-            candidates.append(float(supply_zone))
+        for h in highs: candidates.append(float(h))
+        if supply_zone and supply_zone > entry: candidates.append(float(supply_zone))
         eq_high = recent["high"].rolling(3).max().max()
-        if eq_high > entry:
-            candidates.append(float(eq_high))
+        if eq_high > entry: candidates.append(float(eq_high))
         tp = min(candidates) if candidates else entry + max(
-            (entry - sl) * rr_floor, atr * 2.5
-        )
+            (entry - sl) * rr_floor, atr * 2.5)
     else:
         candidates = []
         lows = recent["low"][recent["low"] < entry].sort_values(ascending=False).unique()
-        for l in lows:
-            candidates.append(float(l))
-        if demand_zone and demand_zone < entry:
-            candidates.append(float(demand_zone))
+        for l in lows: candidates.append(float(l))
+        if demand_zone and demand_zone < entry: candidates.append(float(demand_zone))
         eq_low = recent["low"].rolling(3).min().min()
-        if eq_low < entry:
-            candidates.append(float(eq_low))
+        if eq_low < entry: candidates.append(float(eq_low))
         tp = max(candidates) if candidates else entry - max(
-            (sl - entry) * rr_floor, atr * 2.5
-        )
+            (sl - entry) * rr_floor, atr * 2.5)
 
     return round(tp, MARKETS[symbol_key]["decimals"])
 
@@ -1409,8 +1478,7 @@ def ict_calc_levels(price, atr, symbol_key, df, direction, rr):
         sl_refs.append(float(df.tail(10)["low"].min()) - atr * 0.10)
         sl      = min(sl_refs) if sl_refs else price - atr * ATR_MULT * ATR_MARKET_MULTIPLIER[symbol_key]
         sl_dist = price - sl
-        if sl_dist < min_sl:
-            sl = price - min_sl; sl_dist = min_sl
+        if sl_dist < min_sl: sl = price - min_sl; sl_dist = min_sl
         tp = smart_tp_target(df, symbol_key, direction, price, sl)
         rr = round(abs(tp - price) / abs(price - sl), 2)
     else:
@@ -1420,8 +1488,7 @@ def ict_calc_levels(price, atr, symbol_key, df, direction, rr):
         sl_refs.append(float(df.tail(10)["high"].max()) + atr * 0.10)
         sl      = max(sl_refs) if sl_refs else price + atr * ATR_MULT * ATR_MARKET_MULTIPLIER[symbol_key]
         sl_dist = sl - price
-        if sl_dist < min_sl:
-            sl = price + min_sl; sl_dist = min_sl
+        if sl_dist < min_sl: sl = price + min_sl; sl_dist = min_sl
         tp = smart_tp_target(df, symbol_key, direction, price, sl)
         rr = round(abs(tp - price) / abs(price - sl), 2)
 
@@ -1458,16 +1525,13 @@ def execute_scalp_trade(symbol_key, df, direction, score, session, conditions):
         sl = price + max(atr * 0.8, MARKETS[symbol_key]["min_sl"] * 0.6)
         tp = price - (sl - price) * rr
 
-    sl = round(sl, dec)
-    tp = round(tp, dec)
-
-    cond_text = "\n".join([f"✅ {k}" for k, v in conditions.items() if v])
+    sl = round(sl, dec); tp = round(tp, dec)
+    cond_text = clean_conditions(conditions)
 
     msg = (
         f"⚡ *{SYSTEM_VERSION}* | SCALP SNIPER\n"
         f"*{MARKETS[symbol_key]['mt5']}*\n\n"
-        f"🔥 *Action:* {direction} "
-        f"{'📈' if direction == 'BUY' else '📉'}\n"
+        f"🔥 *Action:* {direction} {'📈' if direction == 'BUY' else '📉'}\n"
         f"🚀 *Signal Type:* SCALP_EXECUTION\n"
         f"⭐ *Score:* {score}\n"
         f"🏆 *Trade Quality:* ELITE SCALP\n"
@@ -1477,11 +1541,9 @@ def execute_scalp_trade(symbol_key, df, direction, score, session, conditions):
         f"🎯 *TP:* {tp:,.{dec}f}\n"
         f"📊 *RR:* 1:{rr}\n\n"
         f"⏰ *Session:* {session}\n\n"
-        f"✅ *Scalp Conditions:*\n"
-        f"{cond_text}\n\n"
+        f"✅ *Scalp Conditions:*\n{cond_text}\n\n"
         f"⚡ QUICK EXECUTION MODE ACTIVE"
     )
-
     send_telegram(msg)
 
 # ============================================================
@@ -1502,22 +1564,36 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
     else:
         price -= EXECUTION_BUFFER[symbol_key]
 
+    # Explosion TP boost
+    if conditions.get("EXPLOSION_CANDLE"):
+        rr += 0.5
+
     sl, tp, sl_dist, rr = ict_calc_levels(price, atr, symbol_key, df, direction, rr)
 
-    risk_mult      = adaptive_risk(session)
-    lot            = lot_for_risk(price, sl, symbol_key, risk_mult)
-    quality        = trade_quality(best)
-    timeframe      = REGIME_TIMEFRAME.get(regime, "1H / 4H")
-    signal_num, entry_type = get_signal_number(symbol_key, session)
-    signal_type    = "ICT_SNIPER"
+    risk_mult   = adaptive_risk(session)
+    lot         = lot_for_risk(price, sl, symbol_key, risk_mult)
+    quality     = trade_quality(best)
+    timeframe   = REGIME_TIMEFRAME.get(regime, "1H / 4H")
+    signal_num, _ = get_signal_number(symbol_key, session)
+    signal_type = "ICT_SNIPER"
+
+    # Dynamic entry type and priority tag
+    if conditions.get("EXPLOSION_CANDLE"):
+        entry_type   = "INSTITUTIONAL EXPANSION BREAKOUT"
+        priority_tag = "⚡ *EXPLOSIVE MOVE CAPTURE*\n"
+    elif conditions.get("MICRO_BOS"):
+        entry_type   = "MICRO BOS RETEST"
+        priority_tag = "🔱 *PRIORITY MARKET*\n" if symbol_key in PRIORITY_MARKETS else "🎯 *STANDARD SNIPER*\n"
+    else:
+        entry_type   = "STANDARD ICT ENTRY"
+        priority_tag = "🔱 *PRIORITY MARKET*\n" if symbol_key in PRIORITY_MARKETS else "🎯 *STANDARD SNIPER*\n"
 
     log_signal(symbol_key, direction, best, rr, price, sl, tp,
                session, regime, timeframe, signal_type)
     sync_real_pnl()
 
-    cond_text    = "\n".join([f"✅ {k}" for k, v in conditions.items() if v])
+    cond_text    = clean_conditions(conditions)
     action_emoji = "📈" if direction == "BUY" else "📉"
-    priority_tag = "🔱 *PRIORITY MARKET*\n" if symbol_key in PRIORITY_MARKETS else ""
     mtf_str      = " | ".join([f"{tf}: {tr[:4]}" for tf, tr in mtf_trends.items()])
 
     tp1 = (
@@ -1557,8 +1633,7 @@ def execute_trade(symbol_key, df, direction, best, wizard_score,
         f"🧠 *Mode:* ICT CONCEPT ENGINE\n"
         f"📡 *Source:* {source}\n\n"
         f"💵 *Lot:* {lot}\n\n"
-        f"✅ *ICT Conditions:*\n"
-        f"{cond_text}\n\n"
+        f"✅ *ICT Conditions:*\n{cond_text}\n\n"
         f"🛡 *MSS + FVG + OB ENGINE ACTIVE*\n"
         f"⚡ *ULTIMATE ICT SUPREME — 2026 ELITE*"
     )
@@ -1628,6 +1703,11 @@ def process_symbol(symbol_key):
 
     mtf_trends = ict_mtf_trend(df)
 
+    # Late entry guard — applied early before engines
+    if not avoid_late_entry(df):
+        log.info(f"REJECTED {symbol_key} overextended candle late entry blocked")
+        return
+
     # Primary ICT signal engine
     direction, ict_score, conditions = ict_signal_engine(df, symbol_key, session)
 
@@ -1641,18 +1721,12 @@ def process_symbol(symbol_key):
 
         if direction:
             now = time.time()
-
             if now - _scalp_signal_sent[symbol_key] < SCALP_SIGNAL_COOLDOWN:
-                log.info(f"SCALP REJECTED {symbol_key} cooldown")
-                return
-
+                log.info(f"SCALP REJECTED {symbol_key} cooldown"); return
             if _scalp_signal_count[symbol_key] >= SCALP_MAX_SIGNALS_PER_SESSION:
-                log.info(f"SCALP REJECTED {symbol_key} session cap")
-                return
-
+                log.info(f"SCALP REJECTED {symbol_key} session cap"); return
             _scalp_signal_sent[symbol_key]  = now
             _scalp_signal_count[symbol_key] += 1
-
             execute_scalp_trade(symbol_key, df, direction, ict_score, session, conditions)
             return
 
@@ -1664,12 +1738,9 @@ def process_symbol(symbol_key):
 
     # HTF bias blocker
     if htf_bias == "BULL" and direction == "SELL":
-        log.info(f"REJECTED {symbol_key} HTF bullish blocker")
-        return
-
+        log.info(f"REJECTED {symbol_key} HTF bullish blocker"); return
     if htf_bias == "BEAR" and direction == "BUY":
-        log.info(f"REJECTED {symbol_key} HTF bearish blocker")
-        return
+        log.info(f"REJECTED {symbol_key} HTF bearish blocker"); return
 
     if "FVG_RETEST" in conditions or "OB_RETEST" in conditions:
         min_ict = 12
@@ -1704,8 +1775,7 @@ def process_symbol(symbol_key):
     # EMA pullback hard filter for TREND and BREAKOUT regimes
     if regime in ["TREND", "BREAKOUT"]:
         if not ema_pullback_confirmation(df, direction):
-            log.info(f"REJECTED {symbol_key} EMA pullback confirmation failed")
-            return
+            log.info(f"REJECTED {symbol_key} EMA pullback confirmation failed"); return
 
     if correlated_signal_block(symbol_key): return
     if duplicate_signal(symbol_key, direction): return
@@ -1751,10 +1821,12 @@ def main():
         f"✅ Continuation Retest Engine\n"
         f"✅ Scalp Sniper Engine\n"
         f"✅ EMA 8/33 Institutional Pullback\n"
+        f"✅ Explosive Move Capture Engine\n"
         f"✅ Wizard AI Filter\n"
         f"✅ Ultra Sniper Score\n"
         f"✅ WaveTrend Confirmation\n"
         f"✅ HTF Bias Directional Filter\n"
+        f"✅ Late Entry Guard\n"
         f"🔒 Correlation Blocker\n"
         f"🚫 False Breakout Filter\n"
         f"🧵 Thread Safe\n"
