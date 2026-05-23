@@ -15,14 +15,14 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 
-SYSTEM_VERSION = "v22.1-INSTITUTIONAL-CONTINUATION-ONLY"
+SYSTEM_VERSION = "IMC PRO AI v1.0"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(message)s",
     handlers=[logging.StreamHandler()]
 )
-log = logging.getLogger("v22.1-continuation")
+log = logging.getLogger("imc-pro")
 
 TOKEN   = os.getenv("TOKEN",   "8641713322:AAHZeJOz0_LILD076P1ShvXSfCqQ1xrpFlk")
 CHAT_ID = os.getenv("CHAT_ID", "8783763018")
@@ -59,19 +59,18 @@ MARKETS = {
         "sweep_bonus": 2,
         "wick_ratio": 1.6,
     },
-    "DE30": {
-        "mt5":        "DE30.Qraw",
-        "yf":         "^GDAXI",
-        "price_lo":   15000,
-        "price_hi":   25000,
-        "sessions":   [7, 18],
+    "BTC/USD": {
+        "mt5":        "BTCUSD",
+        "yf":         "BTC-USD",
+        "price_lo":   10000,
+        "price_hi":   200000,
+        "sessions":   [7, 20],
         "decimals":   1,
-        "min_sl":     50.0,
-        "tier":       "DE30 ELITE",
+        "min_sl":     200,
+        "tier":       "BTC ELITE",
         "bias":       "BULL",
         "rr":         2.0,
-        "sweep_bonus": 3,
-        "wick_ratio": 1.7,
+        "wick_ratio": 2.0,
     },
     "US30": {
         "mt5":        "US30",
@@ -113,39 +112,87 @@ MARKETS = {
         "rr":         2.0,
         "wick_ratio": 1.8,
     },
+    "EURUSD": {
+        "mt5":        "EURUSD",
+        "yf":         "EURUSD=X",
+        "price_lo":   0.90,
+        "price_hi":   1.30,
+        "sessions":   [7, 20],
+        "decimals":   5,
+        "min_sl":     0.00080,
+        "tier":       "EURUSD ELITE",
+        "bias":       "BULL",
+        "rr":         2.0,
+        "wick_ratio": 1.8,
+    },
+    "GBPUSD": {
+        "mt5":        "GBPUSD",
+        "yf":         "GBPUSD=X",
+        "price_lo":   1.10,
+        "price_hi":   1.60,
+        "sessions":   [7, 20],
+        "decimals":   5,
+        "min_sl":     0.00090,
+        "tier":       "GBPUSD ELITE",
+        "bias":       "BULL",
+        "rr":         2.0,
+        "wick_ratio": 1.8,
+    },
+    "USOIL": {
+        "mt5":        "USOIL",
+        "yf":         "CL=F",
+        "price_lo":   40,
+        "price_hi":   150,
+        "sessions":   [13, 21],
+        "decimals":   2,
+        "min_sl":     0.50,
+        "tier":       "USOIL ELITE",
+        "bias":       "BULL",
+        "rr":         2.0,
+        "wick_ratio": 1.8,
+    },
 }
 
 SYMBOLS = [
     "XAU/USD",
     "NAS100",
-    "DE30",
     "US30",
-    "NIFTY50",
+    "BTC/USD",
     "BANKNIFTY",
+    "NIFTY50",
+    "EURUSD",
+    "GBPUSD",
+    "USOIL",
 ]
 
 # ============================================================
 # CORE SETTINGS
 # ============================================================
-ATR_MULT               = 0.28
-VOL_MULT               = 1.05
-ADX_THRESHOLD          = 24
-SIGNAL_COOLDOWN        = 3600
-HTF_REFRESH            = 900
-MAX_DAILY_LOSS         = -300
-MAX_CONSECUTIVE_LOSSES = 3
-MAIN_LOOP_DELAY        = 2
+ATR_MULT                   = 0.28
+VOL_MULT                   = 1.05
+ADX_THRESHOLD              = 32
+SIGNAL_COOLDOWN            = 7200
+HTF_REFRESH                = 900
+MAX_DAILY_LOSS             = -300
+MAX_CONSECUTIVE_LOSSES     = 3
+MAIN_LOOP_DELAY            = 2
+MAX_SIGNALS_PER_SESSION    = 4
+RELATIVE_VOLUME_MULTIPLIER = 1.50
+DEFAULT_RISK               = 50
 
 # ============================================================
 # EXECUTION SLIPPAGE BUFFER
 # ============================================================
 EXECUTION_BUFFER = {
-    "XAU/USD":   0.20,
-    "NAS100":    2.5,
-    "DE30":      3.0,
-    "US30":      2.5,
-    "NIFTY50":   2.0,
-    "BANKNIFTY": 3.0,
+    "XAU/USD":    0.20,
+    "NAS100":     2.5,
+    "BTC/USD":    10.0,
+    "US30":       2.5,
+    "NIFTY50":    2.0,
+    "BANKNIFTY":  3.0,
+    "EURUSD":     0.00010,
+    "GBPUSD":     0.00012,
+    "USOIL":      0.05,
 }
 
 # ============================================================
@@ -166,12 +213,12 @@ MARKET_STRUCTURE = {
         "premium_discount_lookback": 30,
         "wick_ratio":                2.0,
     },
-    "DE30": {
-        "sweep_lookback":            7,
-        "zone_lookback":             14,
-        "displacement_mult":         1.25,
-        "premium_discount_lookback": 28,
-        "wick_ratio":                1.9,
+    "BTC/USD": {
+        "sweep_lookback":            8,
+        "zone_lookback":             12,
+        "displacement_mult":         1.35,
+        "premium_discount_lookback": 30,
+        "wick_ratio":                2.0,
     },
     "US30": {
         "sweep_lookback":            8,
@@ -194,6 +241,27 @@ MARKET_STRUCTURE = {
         "premium_discount_lookback": 24,
         "wick_ratio":                1.8,
     },
+    "EURUSD": {
+        "sweep_lookback":            6,
+        "zone_lookback":             10,
+        "displacement_mult":         1.20,
+        "premium_discount_lookback": 24,
+        "wick_ratio":                1.8,
+    },
+    "GBPUSD": {
+        "sweep_lookback":            6,
+        "zone_lookback":             10,
+        "displacement_mult":         1.20,
+        "premium_discount_lookback": 24,
+        "wick_ratio":                1.8,
+    },
+    "USOIL": {
+        "sweep_lookback":            6,
+        "zone_lookback":             10,
+        "displacement_mult":         1.25,
+        "premium_discount_lookback": 24,
+        "wick_ratio":                1.8,
+    },
 }
 
 # ============================================================
@@ -210,36 +278,45 @@ LONDON_NY_ONLY = [
 # ATR MULTIPLIERS
 # ============================================================
 ATR_MARKET_MULTIPLIER = {
-    "XAU/USD":   1.05,
-    "NAS100":    1.03,
-    "DE30":      1.08,
-    "US30":      1.04,
-    "NIFTY50":   1.05,
-    "BANKNIFTY": 1.06,
+    "XAU/USD":    1.05,
+    "NAS100":     1.03,
+    "BTC/USD":    1.08,
+    "US30":       1.04,
+    "NIFTY50":    1.05,
+    "BANKNIFTY":  1.06,
+    "EURUSD":     1.03,
+    "GBPUSD":     1.04,
+    "USOIL":      1.05,
 }
 
 # ============================================================
 # DOLLAR PER POINT
 # ============================================================
 DOLLAR_PER_POINT = {
-    "XAU/USD":   100,
-    "NAS100":    10,
-    "DE30":      10,
-    "US30":      10,
-    "NIFTY50":   10,
-    "BANKNIFTY": 10,
+    "XAU/USD":    100,
+    "NAS100":     10,
+    "BTC/USD":    1,
+    "US30":       10,
+    "NIFTY50":    10,
+    "BANKNIFTY":  10,
+    "EURUSD":     100000,
+    "GBPUSD":     100000,
+    "USOIL":      1000,
 }
 
 # ============================================================
 # MAX SPREAD
 # ============================================================
 MAX_SPREAD = {
-    "XAU/USD":   1.20,
-    "NAS100":    4.0,
-    "DE30":      5.0,
-    "US30":      6.0,
-    "NIFTY50":   3.0,
-    "BANKNIFTY": 4.0,
+    "XAU/USD":    1.20,
+    "NAS100":     4.0,
+    "BTC/USD":    50.0,
+    "US30":       6.0,
+    "NIFTY50":    3.0,
+    "BANKNIFTY":  4.0,
+    "EURUSD":     0.00020,
+    "GBPUSD":     0.00025,
+    "USOIL":      0.08,
 }
 
 # ============================================================
@@ -397,12 +474,15 @@ def duplicate_signal(symbol_key, direction):
     now = time.time()
 
     duplicate_windows = {
-        "XAU/USD":   3600,
-        "NAS100":    5400,
-        "DE30":      10800,
-        "US30":      5400,
-        "NIFTY50":   5400,
-        "BANKNIFTY": 5400,
+        "XAU/USD":    3600,
+        "NAS100":     5400,
+        "BTC/USD":    3600,
+        "US30":       5400,
+        "NIFTY50":    5400,
+        "BANKNIFTY":  5400,
+                    "EURUSD":     5400,
+        "GBPUSD":     5400,
+                "USOIL":      5400,
     }
 
     cooldown = duplicate_windows.get(symbol_key, 5400)
@@ -426,7 +506,11 @@ def economic_news_block():
 # SYMBOL-SPECIFIC SCAN DELAY
 # ============================================================
 def get_scan_delay(symbol_key):
-    delays = {"XAU/USD": 3, "NAS100": 5, "DE30": 5, "US30": 5, "NIFTY50": 5, "BANKNIFTY": 5}
+    delays = {
+        "XAU/USD": 3, "NAS100": 5, "US30": 5, "BTC/USD": 5,
+        "BANKNIFTY": 5, "NIFTY50": 5, "EURUSD": 5,
+        "GBPUSD": 5, "USOIL": 5,
+    }
     return delays.get(symbol_key, 5)
 
 # ============================================================
@@ -568,13 +652,15 @@ def detect_mss(df):
     if len(df) < 12:
         return False, False
 
-    swing_high = float(df["high"].iloc[-10:-2].max())
-    swing_low  = float(df["low"].iloc[-10:-2].min())
+    swing_high = float(df["high"].iloc[-20:-2].max())
+    swing_low  = float(df["low"].iloc[-20:-2].min())
 
     close = float(df.iloc[-1]["close"])
 
-    bullish = close > swing_high
-    bearish = close < swing_low
+    atr = float(df.iloc[-1]["atr"])
+
+    bullish = close > swing_high + (atr * 0.15)
+    bearish = close < swing_low - (atr * 0.15)
 
     return bullish, bearish
 
@@ -597,13 +683,13 @@ def confirmation_candle(df, direction):
     if direction == "BUY":
         return (
             c > o
-            and body / rng > 0.60
+            and body / rng > 0.75
         )
 
     if direction == "SELL":
         return (
             c < o
-            and body / rng > 0.60
+            and body / rng > 0.75
         )
 
     return False
@@ -840,16 +926,7 @@ def calc_levels(price, atr, symbol_key, df, direction, mode):
         )
     )
 
-    if symbol_key == "DE30":
-        if mode == "TREND":
-            sl_dist *= 1.35
-        else:
-            sl_dist *= 1.25
-
     rr = MARKETS[symbol_key]["rr"]
-
-    if symbol_key == "DE30" and mode == "TREND":
-        rr += 0.2
 
     if direction == "BUY":
         sl = price - sl_dist
@@ -868,20 +945,85 @@ def calc_levels(price, atr, symbol_key, df, direction, mode):
 # ============================================================
 # LOT SIZE
 # ============================================================
-def lot_for_risk(price, sl, symbol_key, risk=50):
+def lot_for_risk(price, sl, symbol_key, risk=DEFAULT_RISK):
     sl_dist = abs(price - sl)
     if sl_dist <= 0:
         return 0.01
     lot = risk / (sl_dist * DOLLAR_PER_POINT[symbol_key])
     caps = {
-        "XAU/USD":   1.50,
-        "NAS100":    2.00,
-        "DE30":      1.50,
-        "US30":      1.50,
-        "NIFTY50":   1.50,
-        "BANKNIFTY": 1.50,
+        "XAU/USD":    1.50,
+        "NAS100":     2.00,
+        "BTC/USD":    0.50,
+        "US30":       1.50,
+        "NIFTY50":    1.50,
+        "BANKNIFTY":  1.50,
+                    "EURUSD":     5.00,
+        "GBPUSD":     5.00,
+                "USOIL":      2.00,
     }
     return round(max(0.01, min(lot, caps[symbol_key])), 3)
+
+# ============================================================
+# AMD PATTERN (ACCUMULATION / MANIPULATION / DISTRIBUTION)
+# ============================================================
+def detect_amd(df):
+    if len(df) < 30:
+        return False
+
+    recent = df.tail(30)
+
+    range_size = recent["high"].max() - recent["low"].min()
+
+    if range_size <= 0:
+        return False
+
+    accumulation = (
+        recent["high"].iloc[:15].max()
+        - recent["low"].iloc[:15].min()
+    ) < range_size * 0.50
+
+    manipulation = (
+        recent["high"].iloc[15:25].max()
+        >
+        recent["high"].iloc[:15].max()
+    ) or (
+        recent["low"].iloc[15:25].min()
+        <
+        recent["low"].iloc[:15].min()
+    )
+
+    distribution = (
+        abs(
+            recent["close"].iloc[-1]
+            -
+            recent["close"].iloc[-5]
+        )
+        > range_size * 0.25
+    )
+
+    return accumulation and manipulation and distribution
+
+
+# ============================================================
+# HVN CONFIRMATION (HIGH VOLUME NODE APPROXIMATION)
+# ============================================================
+def hvn_confirmation(df, direction):
+    try:
+        bins = 20
+        volume_profile = (
+            df.groupby(
+                pd.cut(df["close"], bins=bins)
+            )["volume"].sum()
+        )
+        hvn_price = volume_profile.idxmax().mid
+        current_price = float(df.iloc[-1]["close"])
+        if direction == "BUY":
+            return current_price > hvn_price
+        else:
+            return current_price < hvn_price
+    except Exception:
+        return True  # fail open — don't block on data edge cases
+
 
 # ============================================================
 # PROCESS SYMBOL
@@ -939,8 +1081,6 @@ def process_symbol(symbol_key):
 
     if symbol_key == "XAU/USD":
         max_entry_drift = atr * 0.25
-    elif symbol_key == "DE30":
-        max_entry_drift = atr * 0.30
     else:
         max_entry_drift = atr * 0.35
 
@@ -954,27 +1094,6 @@ def process_symbol(symbol_key):
 
     last = df.iloc[-1]
 
-    vwap_buy  = float(last["close"]) > float(last["vwap"])
-    vwap_sell = float(last["close"]) < float(last["vwap"])
-
-    relative_volume = (
-        float(last["volume"])
-        >
-        float(last["volma"]) * 1.20
-    )
-
-    ema_buy = float(last["ema50"]) > float(last["ema200"])
-
-    ema_sell = float(last["ema50"]) < float(last["ema200"])
-
-    bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
-
-    bull_mss, bear_mss = detect_mss(df)
-
-    bull_confirm = confirmation_candle(df, "BUY")
-
-    bear_confirm = confirmation_candle(df, "SELL")
-
     buy_signal  = False
     sell_signal = False
     best        = 0
@@ -983,9 +1102,58 @@ def process_symbol(symbol_key):
     adx = float(df.iloc[-1]["adx"])
     dec = MARKETS[symbol_key]["decimals"]
 
+    vwap_buy  = float(last["close"]) > float(last["vwap"])
+    vwap_sell = float(last["close"]) < float(last["vwap"])
+
+    relative_volume = (
+        float(last["volume"])
+        >
+        float(last["volma"]) * RELATIVE_VOLUME_MULTIPLIER
+    )
+
+    ema_buy = (
+        float(last["close"]) > float(last["ema50"])
+        and float(last["ema50"]) > float(last["ema200"])
+    )
+
+    ema_sell = (
+        float(last["close"]) < float(last["ema50"])
+        and float(last["ema50"]) < float(last["ema200"])
+    )
+
+    bull_sweep, bear_sweep = detect_liquidity_sweep(df, symbol_key)
+
+    bull_mss, bear_mss = detect_mss(df)
+
+    bull_confirm = (
+        confirmation_candle(df, "BUY")
+        and rsi > 55
+    )
+
+    bear_confirm = (
+        confirmation_candle(df, "SELL")
+        and rsi < 45
+    )
+
     log.info(
         f"{symbol_key} | Mode: {mode} | Trend: {trend} | Session: {session}"
     )
+
+    if adx < ADX_THRESHOLD:
+        log.info(f"REJECTED {symbol_key} ADX {adx:.1f} < {ADX_THRESHOLD}")
+        return
+
+    if (
+        _signal_counter[symbol_key]["count"]
+        >= MAX_SIGNALS_PER_SESSION
+    ):
+        log.info(f"REJECTED {symbol_key} max signals reached ({MAX_SIGNALS_PER_SESSION})")
+        return
+
+    amd_confirm = detect_amd(df)
+    if not amd_confirm:
+        log.info(f"REJECTED {symbol_key} no AMD pattern")
+        return
 
     # --------------------------------------------------------
     # TREND MODE
@@ -995,6 +1163,7 @@ def process_symbol(symbol_key):
         buy_signal = (
             trend == "BULL"
             and ema_buy
+            and price > float(last["ema200"])
             and vwap_buy
             and relative_volume
             and bull_sweep
@@ -1005,6 +1174,7 @@ def process_symbol(symbol_key):
         sell_signal = (
             trend == "BEAR"
             and ema_sell
+            and price < float(last["ema200"])
             and vwap_sell
             and relative_volume
             and bear_sweep
@@ -1033,6 +1203,27 @@ def process_symbol(symbol_key):
     elif sell_signal:
         direction = "SELL"
     else:
+        return
+
+    # --------------------------------------------------------
+    # HVN CONFIRMATION
+    # --------------------------------------------------------
+    if not hvn_confirmation(df, direction):
+        log.info(f"REJECTED {symbol_key} HVN filter failed ({direction})")
+        return
+
+    # --------------------------------------------------------
+    # INSTITUTIONAL STRUCTURE SCORE
+    # --------------------------------------------------------
+    buy_cond, sell_cond, buy_structure, sell_structure = \
+        institutional_structure_score(df, symbol_key)
+
+    if direction == "BUY" and buy_structure < 8:
+        log.info(f"REJECTED {symbol_key} buy structure score {buy_structure} < 8")
+        return
+
+    if direction == "SELL" and sell_structure < 8:
+        log.info(f"REJECTED {symbol_key} sell structure score {sell_structure} < 8")
         return
 
     # --------------------------------------------------------
@@ -1103,10 +1294,14 @@ def process_symbol(symbol_key):
         price -= EXECUTION_BUFFER[symbol_key]
 
     sl, tp, sl_dist, rr = calc_levels(price, atr, symbol_key, df, direction, mode)
-    lot                  = lot_for_risk(price, sl, symbol_key)
+    lot                  = lot_for_risk(price, sl, symbol_key, risk=DEFAULT_RISK)
     timeframe            = MODE_TIMEFRAME.get(mode, "1H / 4H")
     signal_type          = "CONTINUATION"
     signal_num, entry_type = get_signal_number(symbol_key, session)
+
+    if signal_num > 3:
+        log.info(f"REJECTED {symbol_key} session signal cap reached ({signal_num})")
+        return
 
     log_signal(symbol_key, direction, best, rr, price, sl, tp,
                session, mode, timeframe, signal_type)
@@ -1183,13 +1378,16 @@ def main():
         f"📊 *Markets Active:*\n"
         f"🥇 XAU/USD\n"
         f"📈 NAS100\n"
-        f"🇩🇪 DE30\n"
         f"🇺🇸 US30\n"
+        f"₿ BTC/USD\n"
+        f"🏦 BANKNIFTY\n"
         f"🇮🇳 NIFTY50\n"
-        f"🏦 BANKNIFTY\n\n"
+        f"💶 EURUSD\n"
+        f"💷 GBPUSD\n"
+        f"🛢 USOIL\n\n"
         f"🚀 Pure Continuation Engine Active\n"
         f"🛡 Curated Institutional Entry Active\n"
-        f"⚡ Global Elite Pro+ Curated Mode"
+        f"⚡ IMC PRO AI v1.0 — Global Elite Mode"
     )
 
     while True:
