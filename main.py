@@ -170,14 +170,14 @@ SYMBOLS = [
 # ============================================================
 ATR_MULT                   = 0.28
 VOL_MULT                   = 1.05
-ADX_THRESHOLD              = 32
+ADX_THRESHOLD              = 25
 SIGNAL_COOLDOWN            = 7200
 HTF_REFRESH                = 900
 MAX_DAILY_LOSS             = -300
 MAX_CONSECUTIVE_LOSSES     = 3
 MAIN_LOOP_DELAY            = 2
 MAX_SIGNALS_PER_SESSION    = 4
-RELATIVE_VOLUME_MULTIPLIER = 1.50
+RELATIVE_VOLUME_MULTIPLIER = 1.10
 DEFAULT_RISK               = 50
 
 # ============================================================
@@ -580,7 +580,7 @@ def get_spread(df):
     avg_range = (
         recent["high"].astype(float) - recent["low"].astype(float)
     ).mean()
-    return avg_range * 0.18
+    return avg_range * 0.05
 
 # ============================================================
 # INDICATORS
@@ -603,7 +603,18 @@ def add_ind(df):
     df["vwap"]   = (cl * vol).cumsum() / vol.cumsum()
 
     df.replace([float("inf"), float("-inf")], pd.NA, inplace=True)
-    df.dropna(inplace=True)
+
+    required_cols = [
+        "ema50",
+        "ema200",
+        "rsi",
+        "atr",
+        "adx",
+    ]
+    df.dropna(subset=required_cols, inplace=True)
+
+    if len(df) > 250:
+        df = df.iloc[-250:].copy()
 
     return df
 
@@ -1150,10 +1161,25 @@ def process_symbol(symbol_key):
         log.info(f"REJECTED {symbol_key} max signals reached ({MAX_SIGNALS_PER_SESSION})")
         return
 
-    amd_confirm = detect_amd(df)
+    amd_confirm = True  # temporarily disabled for diagnostics
     if not amd_confirm:
         log.info(f"REJECTED {symbol_key} no AMD pattern")
         return
+
+    # --------------------------------------------------------
+    # DEBUG — log all filter states before signal generation
+    # --------------------------------------------------------
+    log.info(
+        f"\n    {symbol_key}\n"
+        f"    trend={trend}\n"
+        f"    ema_buy={ema_buy}  ema_sell={ema_sell}\n"
+        f"    vwap_buy={vwap_buy}  vwap_sell={vwap_sell}\n"
+        f"    relative_volume={relative_volume}\n"
+        f"    bull_sweep={bull_sweep}  bear_sweep={bear_sweep}\n"
+        f"    bull_mss={bull_mss}  bear_mss={bear_mss}\n"
+        f"    bull_confirm={bull_confirm}  bear_confirm={bear_confirm}\n"
+        f"    adx={adx:.1f}  rsi={rsi:.1f}  mode={mode}"
+    )
 
     # --------------------------------------------------------
     # TREND MODE
@@ -1208,9 +1234,12 @@ def process_symbol(symbol_key):
     # --------------------------------------------------------
     # HVN CONFIRMATION
     # --------------------------------------------------------
-    if not hvn_confirmation(df, direction):
-        log.info(f"REJECTED {symbol_key} HVN filter failed ({direction})")
-        return
+    try:
+        if not hvn_confirmation(df, direction):
+            log.info(f"REJECTED {symbol_key} HVN filter failed ({direction})")
+            return
+    except Exception:
+        pass
 
     # --------------------------------------------------------
     # INSTITUTIONAL STRUCTURE SCORE
@@ -1218,12 +1247,12 @@ def process_symbol(symbol_key):
     buy_cond, sell_cond, buy_structure, sell_structure = \
         institutional_structure_score(df, symbol_key)
 
-    if direction == "BUY" and buy_structure < 8:
-        log.info(f"REJECTED {symbol_key} buy structure score {buy_structure} < 8")
+    if direction == "BUY" and buy_structure < 6:
+        log.info(f"REJECTED {symbol_key} buy structure score {buy_structure} < 6")
         return
 
-    if direction == "SELL" and sell_structure < 8:
-        log.info(f"REJECTED {symbol_key} sell structure score {sell_structure} < 8")
+    if direction == "SELL" and sell_structure < 6:
+        log.info(f"REJECTED {symbol_key} sell structure score {sell_structure} < 6")
         return
 
     # --------------------------------------------------------
@@ -1253,7 +1282,7 @@ def process_symbol(symbol_key):
     # --------------------------------------------------------
     # MINIMUM SCORE FILTER
     # --------------------------------------------------------
-    if best < 90:
+    if best < 75:
         log.info(f"REJECTED {symbol_key} score {best}")
         return
 
