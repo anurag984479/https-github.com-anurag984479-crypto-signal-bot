@@ -312,8 +312,8 @@ MAX_SPREAD = {
     "NAS100":     4.0,
     "BTC/USD":    50.0,
     "US30":       6.0,
-    "NIFTY50":    3.0,
-    "BANKNIFTY":  4.0,
+    "NIFTY50":    25.0,
+    "BANKNIFTY":  60.0,
     "EURUSD":     0.00020,
     "GBPUSD":     0.00025,
     "USOIL":      0.08,
@@ -543,7 +543,7 @@ def in_session(symbol_key):
 # ============================================================
 # DATA FETCHING
 # ============================================================
-def fetch_yf(ticker, period="15d", interval="5m"):
+def fetch_yf(ticker, period="30d", interval="5m"):
     try:
         raw = yf.download(
             ticker, period=period, interval=interval,
@@ -568,7 +568,7 @@ def get_entry_data(symbol_key):
             log.error(f"{symbol_key} data fetch failed")
             return None, None
 
-        if len(df) > 100:
+        if len(df) > 50:
             return df, "yf"
 
     return None, None
@@ -1065,7 +1065,8 @@ def process_symbol(symbol_key):
         return
 
     df, source = get_entry_data(symbol_key)
-    if df is None or len(df) < 100:
+    if df is None or len(df) < 50:
+        log.info(f"REJECTED {symbol_key} insufficient raw data")
         return
 
     spread = get_spread(df)
@@ -1075,8 +1076,8 @@ def process_symbol(symbol_key):
 
     df = add_ind(df)
 
-    if df is None or len(df) < 50:
-        log.info(f"REJECTED {symbol_key} insufficient cleaned data")
+    if df is None or len(df) < 30:
+        log.info(f"REJECTED {symbol_key} insufficient cleaned data (rows={len(df) if df is not None else 0})")
         return
 
     price = float(df.iloc[-1]["close"])
