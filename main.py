@@ -1,4 +1,4 @@
-All working sp500 not working 
+
 
 # ============================================================
 # PEPPERSTONE MOMENTUM HUNTER
